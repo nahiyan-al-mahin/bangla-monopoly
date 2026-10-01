@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>বাংলা মনোপলি</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="card">
+    <h1>বাংলা মনোপলি</h1>
+    <p class="subtitle">সার্ভার সংযোগ পরীক্ষা</p>
+
+    <div class="row">
+      <span>সংযোগের অবস্থা:</span>
+      <span id="status" class="status status-connecting">সংযোগ হচ্ছে…</span>
+    </div>
+
+    <div class="row">
+      <span>অনলাইনে আছেন:</span>
+      <span id="online">–</span>
+    </div>
+
+    <button id="pingBtn" disabled>পিং পরীক্ষা করুন</button>
+
+    <div class="row">
+      <span>সর্বশেষ পিং:</span>
+      <span id="pingResult">–</span>
+    </div>
+
+    <ul id="pingLog" class="log"></ul>
+
+    <a class="link-button" href="game.html">বোর্ড দেখুন</a>
+  </main>
+
+  <!-- Socket.IO serves its own client script at this path -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>

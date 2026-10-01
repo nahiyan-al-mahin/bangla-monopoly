@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>বাংলা মনোপলি — বোর্ড</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/board.css">
+</head>
+<body>
+  <!-- The board: an 11x11 grid. js/board.js fills in the 40 squares. -->
+  <div id="board" class="board">
+    <!-- Center area (grid rows/columns 2-10) -->
+    <div class="board-center">
+      <h1 class="board-title">বাংলা মনোপলি</h1>
+      <div class="deck-row">
+        <div class="deck deck-chance">❓ ভাগ্য</div>
+        <div class="deck deck-community">🤝 সমাজকল্যাণ</div>
+      </div>
+      <p class="board-hint">যেকোনো ঘরে চাপ দিয়ে বিস্তারিত দেখুন</p>
+    </div>
+  </div>
+
+  <p id="loadError" class="load-error" hidden>বোর্ডের তথ্য লোড করা যায়নি। পেজটি আবার চালু করুন।</p>
+
+  <!-- Square detail card (filled in by js/board.js) -->
+  <dialog id="detailDialog" class="detail-dialog">
+    <div id="detailContent"></div>
+    <button id="detailClose" class="detail-close" type="button">বন্ধ করুন</button>
+  </dialog>
+
+  <script src="js/board.js"></script>
+</body>
+</html>
