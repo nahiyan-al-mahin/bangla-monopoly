@@ -43,6 +43,15 @@
   --center-warning: #ff8a8a;             /* timer under 10s (readable on green) */
   --center-radius: 1.4cqw;               /* rounded inner corners of the center */
 
+  /* --- Card decks (header band of the drawn card) --- */
+  --deck-chance: #e8890c;        /* ভাগ্য: warm amber */
+  --deck-community: #2b7bbf;     /* সমাজকল্যাণ: calm blue */
+  --color-card-badge: #7048e8;   /* "জেল-মুক্তি কার্ড" badge */
+
+  /* --- Jail cell on the হাজতখানা corner --- */
+  --jail-cell-bg: #f3e3cf;
+  --jail-cell-border: #c9a27a;
+
   /* --- Corner square tints (very light) --- */
   --tint-go: #eaf6ee;
   --tint-jail: #fdf3e7;
@@ -381,6 +390,7 @@ body {
 .badge-me      { color: var(--color-accent); background: var(--color-accent-soft); border-color: transparent; }
 .badge-offline { color: var(--color-danger); background: var(--color-danger-soft); border-color: transparent; }
 .badge-jail    { color: #fff; background: #495057; border-color: #495057; }
+.badge-card    { color: #fff; background: var(--color-card-badge); border-color: var(--color-card-badge); }
 
 /* Token and color pickers */
 .option-grid {

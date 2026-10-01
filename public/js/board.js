@@ -104,6 +104,16 @@ function createSquareElement(square) {
   body.innerHTML = html;
   el.appendChild(body);
 
+  // হাজতখানা: an inner "cell" for jailed players. Visitors (শুধু দেখতে
+  // আসা) stand in the normal pieces row along the edge.
+  if (square.type === 'jail') {
+    const cell = document.createElement('div');
+    cell.className = 'jail-cell';
+    cell.innerHTML = '<span class="jail-cell-label">' + escapeHtml(square.name) + '</span>' +
+      '<div class="jail-cell-pieces"></div>';
+    el.appendChild(cell);
+  }
+
   // Players' pieces standing on this square are drawn in here.
   const pieces = document.createElement('div');
   pieces.className = 'square-pieces';
@@ -151,7 +161,7 @@ function ownerText(index) {
 // Draw every player's piece on the square at player.position.
 // setup = { pieces, colors } from /api/setup.
 function renderPieces(players, setup) {
-  boardEl.querySelectorAll('.square-pieces').forEach((el) => {
+  boardEl.querySelectorAll('.square-pieces, .jail-cell-pieces').forEach((el) => {
     el.innerHTML = '';
   });
 
@@ -166,7 +176,11 @@ function renderPieces(players, setup) {
     holder.className = 'piece-marker';
     holder.title = player.name;
     holder.innerHTML = tokenHtml(piece, color ? color.hex : null, player.name);
-    squareEl.querySelector('.square-pieces').appendChild(holder);
+    // Jailed players go inside the jail cell; everyone else in the normal row.
+    const container = player.inJail && squareEl.querySelector('.jail-cell-pieces')
+      ? squareEl.querySelector('.jail-cell-pieces')
+      : squareEl.querySelector('.square-pieces');
+    container.appendChild(holder);
   });
 }
 

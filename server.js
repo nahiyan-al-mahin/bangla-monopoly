@@ -58,6 +58,8 @@ app.get('/api/setup', (req, res) => {
     roomCodeLetters: config.roomCodeLetters,
     debugDice: config.debugDice, // DEBUG_DICE=1: show the dice picker
     rollTimeoutSeconds: config.ROLL_TIMEOUT_SECONDS,
+    maxJailTurns: config.maxJailTurns,
+    jailFine: config.jailFine,
     buyDecisionSeconds: config.BUY_DECISION_SECONDS,
     ownerAuctionDecisionSeconds: config.OWNER_AUCTION_DECISION_SECONDS,
     auctionSeconds: config.AUCTION_SECONDS,
@@ -189,6 +191,19 @@ io.on('connection', (socket) => {
     const { room, player } = findPlayer(request);
     // request.dice is only looked at when DEBUG_DICE=1 (see engine.rollDice)
     engine.rollDice(room, player, request.dice);
+    broadcastRoom(room);
+  });
+
+  // Jail: leave before rolling ("জোড়া পড়ার চেষ্টা" is just game:roll)
+  handle(socket, 'jail:pay', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.payJailFine(room, player);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'jail:useCard', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.useJailFreeCard(room, player);
     broadcastRoom(room);
   });
 

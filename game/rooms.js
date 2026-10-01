@@ -114,7 +114,9 @@ function addPlayer(room, name) {
     removeTimer: null,       // lobby: removes the player after a long disconnect
     money: 0,                // set when the game starts
     position: 0,
-    inJail: false
+    inJail: false,
+    jailTurns: 0,        // failed "try for doubles" attempts (game/engine.js)
+    jailFreeCards: []    // held jail-free cards (game/engine.js)
   };
   room.players.push(player);
   // A room with no host (everyone left) gets the new player as host.
@@ -325,7 +327,9 @@ function publicState(room) {
       connected: p.connected,
       money: p.money,
       position: p.position,
-      inJail: p.inJail
+      inJail: p.inJail,
+      jailTurns: p.jailTurns,
+      jailFreeCount: p.jailFreeCards.length
     })),
     canStart: room.status === 'lobby' && problem === null,
     startProblem: problem,

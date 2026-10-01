@@ -78,7 +78,7 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 - [x] 5. Buying, rent, taxes, auction
 
-- [ ] 6. Cards and jail logic
+- [x] 6. Cards and jail logic
 
 - [ ] 7. Houses/hotels, mortgage
 

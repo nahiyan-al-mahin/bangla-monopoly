@@ -52,6 +52,8 @@
         <div class="control-buttons">
           <button id="rollBtn" type="button" class="control-btn" hidden>পাশা ফেলো</button>
         </div>
+        <!-- Jailed player's options (filled in by js/game.js) -->
+        <div id="jailButtons" class="jail-buttons" hidden></div>
         <p id="actionError" class="action-error" role="alert"></p>
       </div>
     </div>
@@ -96,6 +98,19 @@
       <p id="decisionError" class="action-error" role="alert"></p>
     </div>
   </section>
+
+  <!-- Drawn ভাগ্য / সমাজকল্যাণ card, shown to everyone for a few seconds -->
+  <div id="cardModal" class="card-modal" hidden aria-live="polite">
+    <div id="cardBox" class="card-box">
+      <div class="card-head">
+        <span id="cardDeckIcon" class="card-deck-icon"></span>
+        <span id="cardDeckName" class="card-deck-name"></span>
+      </div>
+      <p id="cardPlayer" class="card-player"></p>
+      <p id="cardText" class="card-text"></p>
+      <p id="cardEffect" class="card-effect"></p>
+    </div>
+  </div>
 
   <!-- Square detail card (filled in by js/board.js) -->
   <dialog id="detailDialog" class="detail-dialog">

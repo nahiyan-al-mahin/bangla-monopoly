@@ -1,16 +1,21 @@
 // game/engine.js
 // Core game loop: turns, dice, movement, GO salary, jail, landing effects
-// (buy / auction / rent / tax) and the server-side timers.
+// (buy / auction / rent / tax / cards) and the server-side timers.
 //
 // TURN PHASES (room.game.phase):
 //
 //   'roll'     -- waiting for the current player to roll.
 //      |         Roll timer (ROLL_TIMEOUT_SECONDS); on timeout the server rolls.
+//      |         A JAILED player may first pay ৳50 or use a jail-free card
+//      |         (then rolls normally); rolling = trying for doubles (see Jail).
 //      |  rollDice() or timeout
 //      v
 //   'moving'   -- the piece walks (clients animate it). Nobody can act.
 //      |  onArrive(): resolve the landing square
 //      |    - rent / tax are paid automatically
+//      |    - ভাগ্য / সমাজকল্যাণ -> phase 'card': the card is shown for
+//      |      CARD_SHOW_MS, then its effect happens (a card move is a normal
+//      |      move: walk, then onArrive() again)
 //      |    - unowned property -> pending decision:
 //      |        'buy'  -- "কিনুন" or "কিনব না" (BUY_DECISION_SECONDS).
 //      |                  Not buying (or timeout): it simply stays unowned.
@@ -26,7 +31,7 @@
 //      doubles -> same player, phase 'roll' with a new timer
 //      otherwise -> next player, phase 'roll' with a new timer
 //
-// Going to jail (3rd double in a row, or landing on হাজতখানায় যাও) ends the
+// Going to jail (3rd double in a row, হাজতখানায় যাও, or a card) ends the
 // turn: no extra roll, even after doubles (classic rule).
 //
 // Only ONE timer runs per game at a time (room.game.timer). It is always
@@ -40,6 +45,12 @@ const crypto = require('crypto');
 const config = require('./config');
 const { fail } = require('./errors');
 const { SQUARES } = require('../data/board');
+const { CHANCE, COMMUNITY, DECK_NAMES } = require('../data/cards');
+
+// All cards by id, so decks can store just ids
+const CARDS_BY_ID = {};
+CHANCE.forEach((card) => { CARDS_BY_ID[card.id] = { ...card, deck: 'chance' }; });
+COMMUNITY.forEach((card) => { CARDS_BY_ID[card.id] = { ...card, deck: 'community' }; });
 
 const BOARD_SIZE = SQUARES.length; // 40
 const JAIL_INDEX = SQUARES.findIndex((s) => s.type === 'jail'); // 10
@@ -67,7 +78,11 @@ const MSG = {
   bidTooLow: 'দর বর্তমান সর্বোচ্চ দরের চেয়ে বেশি হতে হবে।',
   bidTooHigh: 'আপনার কাছে এত টাকা নেই।',
   alreadyHighest: 'আপনিই এখন সর্বোচ্চ দরদাতা।',
-  highestCannotPass: 'সর্বোচ্চ দরদাতা পাস করতে পারবেন না।'
+  highestCannotPass: 'সর্বোচ্চ দরদাতা পাস করতে পারবেন না।',
+  notInJail: 'আপনি হাজতে নেই।',
+  jailOptionsOnlyBeforeRoll: 'পাশা ফেলার আগেই শুধু এটি করা যায়।',
+  cannotAffordFine: `জরিমানা ৳${config.jailFine} দেওয়ার মতো টাকা নেই।`,
+  noJailFreeCard: 'আপনার কাছে জেল-মুক্তি কার্ড নেই।'
 };
 
 // server.js registers a function here. Timers change the game without any
@@ -87,11 +102,13 @@ function initGame(room) {
     p.money = config.startingMoney;
     p.position = 0; // everyone starts on শুরু
     p.inJail = false;
+    p.jailTurns = 0;      // failed "try for doubles" attempts in jail
+    p.jailFreeCards = []; // held jail-free cards: [{ deck, cardId }]
   });
 
   room.game = {
     turnIndex: 0,          // index into room.players (seat order)
-    phase: 'roll',         // 'roll' | 'moving' | 'buy' | 'ownerAuction' | 'auction'
+    phase: 'roll',         // 'roll' | 'moving' | 'card' | 'buy' | 'ownerAuction' | 'auction'
     doublesCount: 0,       // doubles rolled in a row during this turn
     extraRoll: false,      // true after a double: same player rolls again
     dice: null,            // last roll, e.g. [3, 5]
@@ -107,8 +124,19 @@ function initGame(room) {
     //   { type: 'ownerAuction', playerId, squareIndex, minBid, deadline }
     //   { type: 'auction', squareIndex, sellerId, minBid, highestBid,
     //     highestBidderId, passedIds, deadline }   (sellerId null = bank)
-    // Step 6 adds jail options here.
     pendingDecision: null,
+    // Card decks: arrays of card ids, top = index 0. Shuffled at game start.
+    decks: {
+      chance: shuffle(CHANCE.map((c) => c.id)),
+      community: shuffle(COMMUNITY.map((c) => c.id))
+    },
+    // The card being shown right now (everyone sees it), or null:
+    //   { id, deck, deckName, text, effect, until }
+    card: null,
+    cardCounter: 0,
+    // Set by "nearest railroad/utility" cards for the next landing only:
+    //   'railroadDouble' | 'utility10' | null
+    landingModifier: null,
     timer: null,           // the one running timer (setTimeout handle)
     stopped: false,        // true after stopGame(): timers must do nothing
     log: []                // newest first, at most config.logLimit entries
@@ -152,6 +180,16 @@ function requireTurn(room, player) {
   if (currentPlayer(room) !== player) fail(MSG.notYourTurn);
 }
 
+// Fisher-Yates shuffle with the server's secure random numbers.
+function shuffle(list) {
+  const result = list.slice();
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
 // Roll two dice on the server: numbers 1-6.
 function randomDice() {
   return [crypto.randomInt(1, 7), crypto.randomInt(1, 7)];
@@ -169,9 +207,17 @@ function readDebugDice(requestedDice) {
   return [requestedDice[0], requestedDice[1]];
 }
 
+// Straight to হাজতখানা: no ৳200, and the turn will end (no extra roll).
 function sendToJail(room, player) {
   player.position = JAIL_INDEX;
   player.inJail = true;
+  player.jailTurns = 0;
+  room.game.extraRoll = false;
+}
+
+function leaveJail(player) {
+  player.inJail = false;
+  player.jailTurns = 0;
 }
 
 // Move money. "to" = null means the bank.
@@ -319,55 +365,102 @@ function performRoll(room, player, dice, isDebug) {
     (isDouble ? ' (জোড়া!)' : '') +
     (isDebug ? ' [পরীক্ষা]' : ''));
 
-  // TEMP until Step 6: no jail escape rules yet. A jailed player simply
-  // leaves jail on their next turn and rolls normally.
+  // In jail: this roll is a "try for doubles" (CLAUDE.md default #3).
   if (player.inJail) {
-    player.inJail = false;
-    addLog(room, `${player.name} হাজতখানা থেকে বের হলেন (অস্থায়ী নিয়ম)।`);
+    rollInJail(room, player, total, isDouble);
+    return;
   }
 
   // Three doubles in a row: straight to jail, no movement, turn ends.
   if (isDouble) game.doublesCount += 1;
   if (game.doublesCount >= config.maxDoublesBeforeJail) {
-    const from = player.position;
-    sendToJail(room, player);
-    game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path: [], jumpTo: JAIL_INDEX };
     addLog(room, `${player.name} পরপর ${config.maxDoublesBeforeJail} বার জোড়া ফেলেছেন — সোজা হাজতখানায়!`);
-    startMoving(room);
+    jumpToJail(room, player, []);
     return;
   }
 
-  // Move clockwise one square at a time (the path is used for animation).
+  const { from, path } = movePlayer(room, player, total);
+  game.extraRoll = isDouble; // doubles: same player rolls again after this turn part
+  finishMove(room, player, from, path);
+}
+
+// Jailed player rolled (by choice or by timeout).
+//   doubles          -> leave jail, move by this roll, NO extra roll
+//   no doubles       -> jailTurns + 1; turn ends without moving
+//   3rd failed roll  -> pay the fine (TEMP: may go negative) and move by this roll
+function rollInJail(room, player, total, isDouble) {
+  const game = room.game;
+
+  if (isDouble) {
+    leaveJail(player);
+    addLog(room, `জোড়া পড়েছে! ${player.name} হাজতখানা থেকে বের হলেন (এই চালে আর বাড়তি পাশা নেই)।`);
+  } else {
+    player.jailTurns += 1;
+    if (player.jailTurns < config.maxJailTurns) {
+      addLog(room, `${player.name}-এর জোড়া পড়েনি (${player.jailTurns}/${config.maxJailTurns})। হাজতেই থাকলেন।`);
+      game.lastMove = null;
+      waitThenContinue(room); // turn ends, no movement
+      return;
+    }
+    // Third failed attempt: pay and move by this roll.
+    // TEMP until Step 9: the fine is taken even if money goes negative.
+    pay(room, player, null, config.jailFine);
+    leaveJail(player);
+    addLog(room, `${config.maxJailTurns} বার চেষ্টায়ও জোড়া পড়েনি — ${player.name} ৳${config.jailFine} জরিমানা দিয়ে বের হলেন।`);
+  }
+
+  game.extraRoll = false; // leaving jail by rolling never gives an extra roll
+  const { from, path } = movePlayer(room, player, total);
+  finishMove(room, player, from, path);
+}
+
+// Move a player along the board, one square at a time.
+//   steps > 0: forward (clockwise); passing or landing on শুরু pays ৳200
+//   steps < 0: backward (e.g. "3 ঘর পিছিয়ে যান"); never pays ৳200
+// Returns { from, path } for the walk animation.
+function movePlayer(room, player, steps) {
   const from = player.position;
+  const direction = steps > 0 ? 1 : -1;
   const path = [];
-  for (let step = 1; step <= total; step++) {
-    path.push((from + step) % BOARD_SIZE);
+  for (let i = 1; i <= Math.abs(steps); i++) {
+    path.push((from + direction * i + BOARD_SIZE) % BOARD_SIZE);
   }
   const to = path[path.length - 1];
   player.position = to;
 
-  // Passing or landing on শুরু: the new position "wrapped around" past 39.
-  if (to < from) {
+  // Forward past 39 -> the position "wrapped around": passed or landed on শুরু.
+  if (direction > 0 && to < from) {
     player.money += config.goSalary;
     addLog(room, to === 0
       ? `${player.name} শুরু-তে থেমে ৳${config.goSalary} পেলেন।`
       : `${player.name} শুরু পার হয়ে ৳${config.goSalary} পেলেন।`);
   }
+  return { from, path };
+}
 
-  const square = SQUARES[to];
+// After a move (dice or card): log the square, handle হাজতখানায় যাও, and
+// start the walk animation. The landing itself is resolved in onArrive().
+function finishMove(room, player, from, path) {
+  const game = room.game;
+  const square = SQUARES[player.position];
   addLog(room, `${player.name} পৌঁছালেন: ${square.name}`);
 
   // Landing on হাজতখানায় যাও: to jail, no GO salary, turn ends.
   if (square.type === 'go_to_jail') {
-    sendToJail(room, player);
-    game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path, jumpTo: JAIL_INDEX };
     addLog(room, `${player.name} হাজতখানায় গেলেন!`);
-    startMoving(room);
+    jumpToJail(room, player, path, from);
     return;
   }
 
   game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path, jumpTo: null };
-  game.extraRoll = isDouble; // doubles: same player rolls again after this turn part
+  startMoving(room);
+}
+
+// Send to jail with an animation: walk "path" (may be empty), then jump.
+function jumpToJail(room, player, path, from = player.position) {
+  const game = room.game;
+  sendToJail(room, player);
+  game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path, jumpTo: JAIL_INDEX };
   startMoving(room);
 }
 
@@ -383,9 +476,9 @@ function onArrive(room) {
   const sentToJail = game.lastMove.jumpTo !== null;
   if (!sentToJail) resolveLanding(room, currentPlayer(room));
 
-  // A pending decision (buy / owner auction; Step 6: jail options) pauses the turn.
-  // Its handler calls finishDecision() when it is resolved.
-  if (game.pendingDecision) return;
+  // A pending decision (buy / owner auction) pauses the turn; its handler
+  // calls finishDecision(). A drawn card runs its own timer (phase 'card').
+  if (game.pendingDecision || game.phase === 'card') return;
 
   waitThenContinue(room);
 }
@@ -394,6 +487,9 @@ function onArrive(room) {
 function resolveLanding(room, player) {
   const game = room.game;
   const square = SQUARES[player.position];
+  // Set by a "nearest railroad/utility" card; only for this one landing.
+  const modifier = game.landingModifier;
+  game.landingModifier = null;
 
   if (square.type === 'tax') {
     pay(room, player, null, square.amount);
@@ -401,8 +497,12 @@ function resolveLanding(room, player) {
     return;
   }
 
-  // Step 6: ভাগ্য / সমাজকল্যাণ cards go here.
-  // শুরু, হাজতখানা (just visiting) and চায়ের দোকান: nothing happens.
+  if (square.type === 'chance' || square.type === 'community') {
+    drawCard(room, player, square.type);
+    return;
+  }
+
+  // শুরু, হাজতখানা (শুধু দেখতে আসা) and চায়ের দোকান: nothing happens.
   if (!BUYABLE_TYPES.includes(square.type)) return;
 
   const owner = ownerOf(room, square.index);
@@ -428,8 +528,22 @@ function resolveLanding(room, player) {
     return;
   }
 
-  const diceTotal = game.dice[0] + game.dice[1];
-  const rent = calculateRent(room, square, owner, diceTotal);
+  let rent;
+  if (modifier === 'railroadDouble') {
+    // ভাগ্য card: double the normal railroad rent
+    const normal = calculateRent(room, square, owner, 0);
+    rent = { amount: normal.amount * 2, detail: normal.detail + ', কার্ড: দ্বিগুণ ভাড়া' };
+  } else if (modifier === 'utility10') {
+    // ভাগ্য card: roll the dice now and pay 10 x the total
+    const dice = randomDice();
+    const total = dice[0] + dice[1];
+    game.dice = dice; // show this roll on the dice
+    addLog(room, `${player.name} ভাড়ার জন্য পাশা ফেললেন: ${dice[0]} + ${dice[1]} = ${total}`);
+    rent = { amount: total * 10, detail: `কার্ড: পাশা ${total} × 10` };
+  } else {
+    const diceTotal = game.dice[0] + game.dice[1];
+    rent = calculateRent(room, square, owner, diceTotal);
+  }
   pay(room, player, owner, rent.amount);
   addLog(room,
     `${player.name} ${owner.name}-কে ৳${rent.amount} ভাড়া দিলেন ` +
@@ -466,7 +580,10 @@ function advanceTurn(room) {
   game.turnIndex = (game.turnIndex + 1) % room.players.length;
   game.doublesCount = 0;
   game.extraRoll = false;
-  addLog(room, `এখন পালা: ${currentPlayer(room).name}`);
+  const next = currentPlayer(room);
+  addLog(room, next.inJail
+    ? `এখন পালা: ${next.name} (হাজতে — বের হওয়ার উপায় বেছে নিন)`
+    : `এখন পালা: ${next.name}`);
   startRollTimer(room);
 }
 
@@ -700,6 +817,196 @@ function endAuction(room) {
   finishDecision(room);
 }
 
+// ---------- Cards (ভাগ্য / সমাজকল্যাণ) ----------
+// Draw from the top, put the card back at the bottom. A jail-free card
+// stays with the player and goes back to the bottom of its own deck when
+// it is used. The card is shown to everyone for CARD_SHOW_MS, then its
+// effect happens.
+
+function drawCard(room, player, deckKey) {
+  const game = room.game;
+  const deck = game.decks[deckKey];
+  const cardId = deck.shift();
+  const card = CARDS_BY_ID[cardId];
+
+  if (card.action.type === 'jailFree') {
+    player.jailFreeCards.push({ deck: deckKey, cardId }); // kept, not returned yet
+  } else {
+    deck.push(cardId); // back to the bottom
+  }
+
+  game.phase = 'card';
+  game.card = {
+    id: ++game.cardCounter,
+    deck: deckKey,
+    deckName: DECK_NAMES[deckKey],
+    playerId: player.id,
+    text: card.text,
+    effect: describeCardEffect(room, player, card.action),
+    until: Date.now() + config.CARD_SHOW_MS
+  };
+  addLog(room, `${player.name} ${DECK_NAMES[deckKey]} কার্ড তুললেন: "${card.text}"`);
+
+  setGameTimer(room, config.CARD_SHOW_MS, () => {
+    game.card = null;
+    applyCard(room, player, card.action);
+  });
+}
+
+// Short Bangla summary of what the card does (shown under the card text).
+function describeCardEffect(room, player, action) {
+  switch (action.type) {
+    case 'moveTo': return `${SQUARES[action.index].name}-এ যান`;
+    case 'moveBy': return action.steps < 0 ? `${-action.steps} ঘর পিছিয়ে যান` : `${action.steps} ঘর এগিয়ে যান`;
+    case 'collect': return `৳${action.amount} পাবেন`;
+    case 'pay': return `৳${action.amount} দিতে হবে`;
+    case 'collectFromEach': return `প্রত্যেকের কাছ থেকে ৳${action.amount}`;
+    case 'payEach': return `প্রত্যেককে ৳${action.amount}`;
+    case 'repairs': {
+      const { houses, hotels, total } = repairCost(room, player, action);
+      return `মেরামত খরচ ৳${total} (${houses}টি বাড়ি, ${hotels}টি হোটেল)`;
+    }
+    case 'goToJail': return 'হাজতখানায় যান';
+    case 'jailFree': return 'জেল-মুক্তি কার্ড পেলেন';
+    case 'nearestRailroad': return `নিকটতম রেলস্টেশন: ${SQUARES[nextSquareOfType(player.position, 'railroad')].name}`;
+    case 'nearestUtility': return `নিকটতম ইউটিলিটি: ${SQUARES[nextSquareOfType(player.position, 'utility')].name}`;
+    default: return '';
+  }
+}
+
+// The next square of a type going FORWARD from "position".
+function nextSquareOfType(position, type) {
+  for (let step = 1; step <= BOARD_SIZE; step++) {
+    const index = (position + step) % BOARD_SIZE;
+    if (SQUARES[index].type === type) return index;
+  }
+  return position;
+}
+
+// Repairs: houses (1-4 per property) and hotels (5 = hotel) the player owns.
+function repairCost(room, player, action) {
+  let houses = 0;
+  let hotels = 0;
+  Object.values(room.game.properties).forEach((state) => {
+    if (state.ownerId !== player.id) return;
+    if (state.houses === 5) hotels += 1;
+    else houses += state.houses;
+  });
+  return { houses, hotels, total: houses * action.perHouse + hotels * action.perHotel };
+}
+
+// Forward move to a square (passing শুরু pays ৳200), resolved like a roll.
+function cardMoveTo(room, player, index) {
+  const steps = (index - player.position + BOARD_SIZE) % BOARD_SIZE;
+  const { from, path } = movePlayer(room, player, steps);
+  finishMove(room, player, from, path);
+}
+
+// Do what the card says. Money cards finish the turn part; move cards
+// start a new walk, and the new square is resolved like any landing.
+function applyCard(room, player, action) {
+  const others = room.players.filter((p) => p !== player);
+
+  switch (action.type) {
+    case 'moveTo':
+      cardMoveTo(room, player, action.index);
+      return;
+
+    case 'moveBy': {
+      const { from, path } = movePlayer(room, player, action.steps);
+      finishMove(room, player, from, path);
+      return;
+    }
+
+    case 'nearestRailroad':
+      room.game.landingModifier = 'railroadDouble';
+      cardMoveTo(room, player, nextSquareOfType(player.position, 'railroad'));
+      return;
+
+    case 'nearestUtility':
+      room.game.landingModifier = 'utility10';
+      cardMoveTo(room, player, nextSquareOfType(player.position, 'utility'));
+      return;
+
+    case 'goToJail':
+      addLog(room, `${player.name} হাজতখানায় গেলেন!`);
+      jumpToJail(room, player, []);
+      return;
+
+    case 'collect':
+      player.money += action.amount;
+      addLog(room, `${player.name} ব্যাংক থেকে ৳${action.amount} পেলেন।`);
+      break;
+
+    case 'pay':
+      pay(room, player, null, action.amount); // TEMP until Step 9: may go negative
+      addLog(room, `${player.name} ব্যাংককে ৳${action.amount} দিলেন।`);
+      break;
+
+    case 'collectFromEach':
+      others.forEach((other) => pay(room, other, player, action.amount)); // TEMP until Step 9
+      addLog(room, `${player.name} প্রত্যেকের কাছ থেকে ৳${action.amount} করে পেলেন।`);
+      break;
+
+    case 'payEach':
+      others.forEach((other) => pay(room, player, other, action.amount)); // TEMP until Step 9
+      addLog(room, `${player.name} প্রত্যেককে ৳${action.amount} করে দিলেন।`);
+      break;
+
+    case 'repairs': {
+      const { total } = repairCost(room, player, action);
+      if (total > 0) pay(room, player, null, total); // TEMP until Step 9
+      addLog(room, `${player.name} মেরামত বাবদ ৳${total} দিলেন।`);
+      break;
+    }
+
+    case 'jailFree':
+      addLog(room, `${player.name} একটি জেল-মুক্তি কার্ড পেলেন।`);
+      break;
+
+    default:
+      break;
+  }
+
+  waitThenContinue(room);
+}
+
+// ---------- Jail: leaving before the roll ----------
+// On a jailed player's turn (phase 'roll', normal roll timer):
+//   "৳50 দিয়ে বের হও"           payJailFine()
+//   "জেল-মুক্তি কার্ড ব্যবহার করো"  useJailFreeCard()
+//   "জোড়া পড়ার চেষ্টা করো"        = rollDice() (also what a timeout does)
+// After paying or using a card the player takes a normal roll
+// (doubles give an extra roll as usual).
+
+function requireJailChoice(room, player) {
+  requireTurn(room, player);
+  if (!player.inJail) fail(MSG.notInJail);
+  if (room.game.phase !== 'roll') fail(MSG.jailOptionsOnlyBeforeRoll);
+}
+
+function payJailFine(room, player) {
+  requireJailChoice(room, player);
+  if (player.money < config.jailFine) fail(MSG.cannotAffordFine);
+
+  pay(room, player, null, config.jailFine);
+  leaveJail(player);
+  addLog(room, `${player.name} ৳${config.jailFine} জরিমানা দিয়ে হাজতখানা থেকে বের হলেন। এবার পাশা ফেলুন।`);
+  startRollTimer(room); // fresh timer for the normal roll
+}
+
+function useJailFreeCard(room, player) {
+  requireJailChoice(room, player);
+  if (player.jailFreeCards.length === 0) fail(MSG.noJailFreeCard);
+
+  // The used card goes back to the bottom of its own deck.
+  const held = player.jailFreeCards.shift();
+  room.game.decks[held.deck].push(held.cardId);
+  leaveJail(player);
+  addLog(room, `${player.name} জেল-মুক্তি কার্ড দিয়ে হাজতখানা থেকে বের হলেন। এবার পাশা ফেলুন।`);
+  startRollTimer(room);
+}
+
 // ---------- What clients may see ----------
 
 function publicGame(room) {
@@ -720,6 +1027,7 @@ function publicGame(room) {
     rollDeadline: game.rollDeadline, // clients show a countdown to this
     properties,
     pendingDecision: game.pendingDecision,
+    card: game.card, // the card being shown right now, or null
     serverTime: Date.now(),          // lets clients correct for clock differences
     log: game.log
   };
@@ -730,6 +1038,8 @@ module.exports = {
   initGame,
   stopGame,
   rollDice,
+  payJailFine,
+  useJailFreeCard,
   buyProperty,
   declineProperty,
   startOwnerAuction,

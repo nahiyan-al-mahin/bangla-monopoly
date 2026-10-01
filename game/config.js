@@ -39,6 +39,10 @@ const config = {
   // player choose the dice values. Without it, client dice are ignored.
   debugDice: process.env.DEBUG_DICE === '1',
 
+  // --- Cards (ভাগ্য / সমাজকল্যাণ) ---
+  // How long the drawn card is shown to everyone before its effect happens.
+  CARD_SHOW_MS: 3500,
+
   // --- Jail ---
   maxJailTurns: 3, // on the 3rd failed doubles attempt: pay fine and move
 

@@ -19,6 +19,16 @@ const die1 = document.getElementById('die1');
 const die2 = document.getElementById('die2');
 const turnHint = document.getElementById('turnHint');
 const rollBtn = document.getElementById('rollBtn');
+const jailButtons = document.getElementById('jailButtons');
+
+// Card display (ভাগ্য / সমাজকল্যাণ)
+const cardModal = document.getElementById('cardModal');
+const cardBox = document.getElementById('cardBox');
+const cardDeckIcon = document.getElementById('cardDeckIcon');
+const cardDeckName = document.getElementById('cardDeckName');
+const cardPlayer = document.getElementById('cardPlayer');
+const cardText = document.getElementById('cardText');
+const cardEffect = document.getElementById('cardEffect');
 const actionError = document.getElementById('actionError');
 const debugDiceBox = document.getElementById('debugDice');
 const debugDie1 = document.getElementById('debugDie1');
@@ -195,6 +205,9 @@ function renderPlayers(state) {
     if (player.id === state.hostId) badges += '<span class="badge badge-host">হোস্ট</span>';
     if (player.id === myPlayerId) badges += '<span class="badge badge-me">আপনি</span>';
     if (player.inJail) badges += '<span class="badge badge-jail">হাজতে</span>';
+    if (player.jailFreeCount > 0) {
+      badges += '<span class="badge badge-card">জেল-মুক্তি কার্ড ×' + player.jailFreeCount + '</span>';
+    }
     if (!player.connected) badges += '<span class="badge badge-offline">সংযোগ বিচ্ছিন্ন</span>';
 
     // TEMP until Step 9: money can be negative; it is shown in red.
@@ -272,13 +285,22 @@ function renderControls(state) {
   const game = state.game;
   const isMyTurn = game.currentPlayerId === myPlayerId;
   const canRoll = isMyTurn && game.phase === 'roll';
+  const me = playerById(myPlayerId);
+  const jailChoice = canRoll && me.inJail; // jailed: show the jail options instead
 
-  rollBtn.hidden = !canRoll;
+  rollBtn.hidden = !canRoll || jailChoice;
   rollBtn.disabled = animating || waitingForServer;
   debugDiceBox.hidden = !(setup.debugDice && canRoll);
+  renderJailButtons(jailChoice, me);
 
   const current = playerById(game.currentPlayerId);
-  if (game.phase === 'buy') {
+  if (game.phase === 'card') {
+    turnHint.textContent = 'কার্ড পড়া হচ্ছে…';
+  } else if (game.phase === 'roll' && current.inJail) {
+    turnHint.textContent = isMyTurn
+      ? `আপনি হাজতে (চেষ্টা ${current.jailTurns + 1}/${setup.maxJailTurns})। বের হওয়ার উপায় বেছে নিন।`
+      : `${current.name} হাজতে — সিদ্ধান্তের অপেক্ষায়…`;
+  } else if (game.phase === 'buy') {
     turnHint.textContent = isMyTurn ? 'কিনবেন কি না, সিদ্ধান্ত নিন।' : `${current.name} ভাবছেন কিনবেন কিনা…`;
   } else if (game.phase === 'ownerAuction') {
     turnHint.textContent = isMyTurn ? 'নিলামে তুলবেন কি না, সিদ্ধান্ত নিন।' : `${current.name} ভাবছেন নিলামে তুলবেন কিনা…`;
@@ -293,6 +315,54 @@ function renderControls(state) {
       ? 'জোড়া পড়েছে! আবার পাশা ফেলুন।'
       : 'আপনার পালা! পাশা ফেলুন।';
   }
+}
+
+// Jail options for the jailed current player (server checks them again):
+//   "৳50 দিয়ে বের হও" only if they can afford it,
+//   "জেল-মুক্তি কার্ড ব্যবহার করো" only if they hold one,
+//   "জোড়া পড়ার চেষ্টা করো" = a normal roll request (also what a timeout does).
+function renderJailButtons(show, me) {
+  jailButtons.hidden = !show;
+  jailButtons.innerHTML = '';
+  if (!show) return;
+
+  const busy = animating || waitingForServer;
+  if (me.money >= setup.jailFine) {
+    jailButtons.appendChild(makeButton(`৳${setup.jailFine} দিয়ে বের হও`, 'control-btn secondary', busy,
+      () => sendRequest('jail:pay', {}, actionError)));
+  }
+  if (me.jailFreeCount > 0) {
+    jailButtons.appendChild(makeButton('জেল-মুক্তি কার্ড ব্যবহার করো', 'control-btn secondary', busy,
+      () => sendRequest('jail:useCard', {}, actionError)));
+  }
+  jailButtons.appendChild(makeButton('জোড়া পড়ার চেষ্টা করো', 'control-btn', busy, () => {
+    const dice = chosenDebugDice();
+    sendRequest('game:roll', dice ? { dice } : {}, actionError);
+  }));
+}
+
+// ---------- Card display (ভাগ্য / সমাজকল্যাণ) ----------
+// The server shows a drawn card for CARD_SHOW_MS, then applies it and
+// clears it. We hide it when it is cleared or its time is up.
+
+function renderCard(state) {
+  const card = state.game.card;
+  if (!card || cardTimeIsUp(card)) {
+    cardModal.hidden = true;
+    return;
+  }
+  const player = playerById(card.playerId);
+  cardBox.className = 'card-box deck-' + card.deck;
+  cardDeckIcon.innerHTML = iconSvg(card.deck === 'chance' ? 'chance' : 'community');
+  cardDeckName.textContent = card.deckName;
+  cardPlayer.textContent = player ? `${player.name} কার্ড তুলেছেন` : '';
+  cardText.textContent = card.text;
+  cardEffect.textContent = card.effect;
+  cardModal.hidden = false;
+}
+
+function cardTimeIsUp(card) {
+  return Date.now() + clockOffsetMs > card.until;
 }
 
 // ---------- Buy / owner-auction / auction panel ----------
@@ -451,6 +521,9 @@ function updateCountdown() {
       setup.rollTimeoutSeconds, ROLL_WARNING_SECONDS);
   rollTimer.hidden = !rolling;
 
+  // Auto-close the card when its time is up
+  if (game.card && !cardModal.hidden && cardTimeIsUp(game.card)) cardModal.hidden = true;
+
   // Buy / owner-auction / auction timer (decision panel)
   const decision = game.pendingDecision;
   const total = decision ? decisionSeconds(decision.type) : null;
@@ -502,6 +575,7 @@ function renderAll() {
   renderTurnInfo(state);
   renderControls(state);
   renderDecision(state);
+  renderCard(state);
   renderOwnership(state.game.properties, state.players, setup);
   renderLog(state);
   drawPieces();
