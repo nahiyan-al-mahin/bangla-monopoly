@@ -329,7 +329,8 @@ function publicState(room) {
       position: p.position,
       inJail: p.inJail,
       jailTurns: p.jailTurns,
-      jailFreeCount: p.jailFreeCards.length
+      jailFreeCount: p.jailFreeCards.length,
+      bankrupt: Boolean(p.bankrupt) // out of the game, only watching
     })),
     canStart: room.status === 'lobby' && problem === null,
     startProblem: problem,

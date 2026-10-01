@@ -36,6 +36,29 @@ const debugDie2 = document.getElementById('debugDie2');
 const debugCard = document.getElementById('debugCard');
 const bankStock = document.getElementById('bankStock');
 
+// Debts, bankruptcy, end of game (Step 9)
+const debtPanel = document.getElementById('debtPanel');
+const debtTitle = document.getElementById('debtTitle');
+const debtInfo = document.getElementById('debtInfo');
+const debtTimerFill = document.getElementById('debtTimerFill');
+const debtTimerText = document.getElementById('debtTimerText');
+const debtTimer = debtTimerFill.closest('.decision-timer');
+const debtButtons = document.getElementById('debtButtons');
+const debtPay = document.getElementById('debtPay');
+const debtManage = document.getElementById('debtManage');
+const debtBankrupt = document.getElementById('debtBankrupt');
+const debtHint = document.getElementById('debtHint');
+const debtError = document.getElementById('debtError');
+const winnerScreen = document.getElementById('winnerScreen');
+const winnerName = document.getElementById('winnerName');
+const winnerRanking = document.getElementById('winnerRanking');
+const newGameBtn = document.getElementById('newGameBtn');
+const resignBtn = document.getElementById('resignBtn');
+const debugMoney = document.getElementById('debugMoney');
+const debugMoneyPlayer = document.getElementById('debugMoneyPlayer');
+const debugMoneyAmount = document.getElementById('debugMoneyAmount');
+const debugMoneySet = document.getElementById('debugMoneySet');
+
 // Trading
 const outgoingTrade = document.getElementById('outgoingTrade');
 const tradeDialog = document.getElementById('tradeDialog');
@@ -241,10 +264,12 @@ function renderPlayers(state) {
     if (player.id === currentId) li.classList.add('current');
     if (player.id === myPlayerId) li.classList.add('me');
     if (!player.connected) li.classList.add('offline');
+    if (player.bankrupt) li.classList.add('bankrupt');
     if (color) li.style.setProperty('--player-color', color.hex);
 
     let badges = '';
-    if (player.id === currentId) badges += '<span class="badge badge-turn">▶ পালা</span>';
+    if (player.bankrupt) badges += '<span class="badge badge-bankrupt">দেউলিয়া</span>';
+    if (player.id === currentId && !state.game.over) badges += '<span class="badge badge-turn">▶ পালা</span>';
     if (player.id === state.hostId) badges += '<span class="badge badge-host">হোস্ট</span>';
     if (player.id === myPlayerId) badges += '<span class="badge badge-me">আপনি</span>';
     if (player.inJail) badges += '<span class="badge badge-jail">হাজতে</span>';
@@ -253,8 +278,9 @@ function renderPlayers(state) {
     }
     if (!player.connected) badges += '<span class="badge badge-offline">সংযোগ বিচ্ছিন্ন</span>';
 
-    // TEMP until Step 9: money can be negative; it is shown in red.
-    const moneyClass = player.money < 0 ? 'game-player-money negative' : 'game-player-money';
+    // A player with an open debt: money shown in red
+    const inDebt = state.game.debts.some((d) => d.playerId === player.id);
+    const moneyClass = inDebt ? 'game-player-money negative' : 'game-player-money';
 
     li.innerHTML =
       '<div class="game-player-row">' +
@@ -266,7 +292,7 @@ function renderPlayers(state) {
         '<span class="' + moneyClass + '">' + money(player.money) + '</span>' +
       '</div>' +
       // My own properties are in the "আমার সম্পত্তি" panel, not here.
-      (player.id === myPlayerId ? '' :
+      (player.id === myPlayerId || player.bankrupt ? '' :
         '<div class="game-player-actions">' +
           otherPlayerPropertiesHtml(player.id, state.game.properties) +
           tradeButtonHtml(state, player) +
@@ -331,7 +357,8 @@ function renderTurnInfo(state) {
 function renderControls(state) {
   const game = state.game;
   const isMyTurn = game.currentPlayerId === myPlayerId;
-  const canRoll = isMyTurn && game.phase === 'roll';
+  // While debts / a bankruptcy sale are open (game.paused) nobody rolls.
+  const canRoll = isMyTurn && game.phase === 'roll' && !game.paused && !game.over;
   const me = playerById(myPlayerId);
   const jailChoice = canRoll && me.inJail; // jailed: show the jail options instead
 
@@ -341,7 +368,19 @@ function renderControls(state) {
   renderJailButtons(jailChoice, me);
 
   const current = playerById(game.currentPlayerId);
-  if (game.phase === 'card') {
+  const debt = game.debts[0];
+  if (game.over) {
+    turnHint.textContent = 'খেলা শেষ!';
+  } else if (debt) {
+    const debtor = playerById(debt.playerId);
+    turnHint.textContent = debtor.id === myPlayerId
+      ? 'দেনা মেটান — বিক্রি, বন্ধক বা বাণিজ্য করে টাকা জোগাড় করুন।'
+      : `${debtor.name}-এর দেনা মেটানোর অপেক্ষা…`;
+  } else if (game.bankSale) {
+    turnHint.textContent = 'দেউলিয়া খেলোয়াড়ের সম্পত্তি ব্যাংক নিলামে তুলছে…';
+  } else if (me.bankrupt) {
+    turnHint.textContent = 'আপনি দেউলিয়া — খেলা দেখছেন।';
+  } else if (game.phase === 'card') {
     turnHint.textContent = 'কার্ড পড়া হচ্ছে…';
   } else if (game.phase === 'roll' && current.inJail) {
     turnHint.textContent = isMyTurn
@@ -490,6 +529,118 @@ manageDetails.addEventListener('click', () => {
   if (index !== null) showDetail(index);
 });
 
+// ---------- Debts (Step 9) ----------
+// The debtor sees what they owe, their cash, the most they could raise,
+// and a countdown. Selling/mortgaging (manage view) and trading stay
+// available. Everyone else sees who the game is waiting for.
+
+function creditorText(debt) {
+  if (debt.creditorId === 'bank') return 'ব্যাংক';
+  if (debt.creditorId === 'each') return 'প্রত্যেক খেলোয়াড়';
+  const creditor = playerById(debt.creditorId);
+  return creditor ? creditor.name : 'ব্যাংক';
+}
+
+function renderDebt(state) {
+  // My own debt first; otherwise the first open debt (watch only)
+  const debt = state.game.debts.find((d) => d.playerId === myPlayerId) || state.game.debts[0];
+  if (!debt || state.game.over) {
+    debtPanel.hidden = true;
+    debtError.textContent = '';
+    return;
+  }
+  const debtor = playerById(debt.playerId);
+  const mine = debtor.id === myPlayerId;
+  debtPanel.hidden = false;
+  debtPanel.classList.toggle('watching', !mine);
+
+  debtTitle.textContent = mine ? 'আপনার দেনা' : `${debtor.name}-এর দেনা মেটানোর অপেক্ষা…`;
+  debtInfo.innerHTML =
+    '<p>দেনা: <strong>' + money(debt.amount) + '</strong> → ' + escapeHtml(creditorText(debt)) +
+      ' <span class="debt-reason">(' + escapeHtml(debt.reason) + ')</span></p>' +
+    '<p>' + (mine ? 'আপনার' : escapeHtml(debtor.name) + '-এর') + ' টাকা: <strong>' + money(debtor.money) + '</strong>' +
+      ' · সর্বোচ্চ জোগাড় করা যাবে: <strong>' + money(debt.maxRaisable) + '</strong></p>';
+
+  debtButtons.hidden = !mine;
+  if (mine) {
+    debtPay.disabled = debtor.money < debt.amount || waitingForServer;
+    debtBankrupt.disabled = waitingForServer;
+    debtHint.textContent = debtor.money >= debt.amount
+      ? 'যথেষ্ট টাকা হয়েছে — পরিশোধ করুন।'
+      : (debt.maxRaisable >= debt.amount
+        ? 'আমার সম্পত্তি থেকে বাড়ি বিক্রি বা বন্ধক রাখুন, অথবা বাণিজ্য করুন। সময় শেষ হলে স্বয়ংক্রিয়ভাবে বিক্রি হবে।'
+        : 'সব বিক্রি করলেও দেনা মেটানো যাবে না। সময় শেষে দেউলিয়া হবেন।');
+  } else {
+    debtHint.textContent = '';
+  }
+}
+
+debtPay.addEventListener('click', () => sendRequest('debt:pay', {}, debtError));
+debtManage.addEventListener('click', () => {
+  document.querySelector('.my-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+debtBankrupt.addEventListener('click', () => {
+  if (window.confirm('আপনি কি সত্যিই দেউলিয়া ঘোষণা করতে চান? আপনার সব সম্পত্তি পাওনাদারের কাছে যাবে এবং আপনি খেলা থেকে বাদ পড়বেন।')) {
+    sendRequest('debt:bankrupt', {}, debtError);
+  }
+});
+
+resignBtn.addEventListener('click', () => {
+  if (window.confirm('আপনি কি সত্যিই খেলা ছেড়ে দিতে চান? আপনি ব্যাংকের কাছে দেউলিয়া হবেন এবং আপনার সম্পত্তি নিলামে উঠবে।')) {
+    sendRequest('game:resign', {}, actionError);
+  }
+});
+
+// ---------- End of game ----------
+
+function renderEndOfGame(state) {
+  const me = playerById(myPlayerId);
+  resignBtn.hidden = Boolean(state.game.over) || me.bankrupt;
+  renderDebugMoney(state);
+
+  const over = state.game.over;
+  if (!over) {
+    winnerScreen.hidden = true;
+    return;
+  }
+  const winner = playerById(over.winnerId);
+  winnerName.textContent = 'বিজয়ী: ' + winner.name;
+  winnerRanking.innerHTML = over.ranking.map((row) => {
+    const p = playerById(row.id);
+    const piece = findById(setup.pieces, p.piece);
+    const color = findById(setup.colors, p.color);
+    return '<li class="' + (row.place === 1 ? 'first' : '') + '">' +
+      '<span class="rank">' + row.place + '</span>' +
+      tokenHtml(piece, color ? color.hex : null, p.name, 'rank-token') +
+      '<span class="rank-name">' + escapeHtml(row.name) + (row.bankrupt ? ' <span class="badge badge-bankrupt">দেউলিয়া</span>' : '') + '</span>' +
+      '<span class="rank-money">' + money(row.money) + '<small>মোট সম্পদ ' + money(row.netWorth) + '</small></span>' +
+    '</li>';
+  }).join('');
+  winnerScreen.hidden = false;
+}
+
+newGameBtn.addEventListener('click', () => {
+  clearSession();
+  location.href = '/';
+});
+
+// DEBUG_DICE=1 and host only: set any player's cash (server checks both).
+function renderDebugMoney(state) {
+  const show = setup.debugDice && state.hostId === myPlayerId && !state.game.over;
+  debugMoney.hidden = !show;
+  if (!show) return;
+  const active = state.players.filter((p) => !p.bankrupt);
+  const selected = debugMoneyPlayer.value;
+  debugMoneyPlayer.innerHTML = active.map((p) =>
+    '<option value="' + p.id + '">' + escapeHtml(p.name) + '</option>').join('');
+  if (active.some((p) => p.id === selected)) debugMoneyPlayer.value = selected;
+}
+
+debugMoneySet.addEventListener('click', () => {
+  const amount = Math.floor(Number(debugMoneyAmount.value));
+  sendRequest('debug:setMoney', { targetId: debugMoneyPlayer.value, amount }, actionError);
+});
+
 // ---------- Trading ----------
 // The server checks everything (again at acceptance). The builder only
 // helps: it shows what can be traded, the mortgage fees, and a preview.
@@ -514,6 +665,7 @@ function tradeStartProblem(state) {
 }
 
 function tradeButtonHtml(state, player) {
+  if (playerById(myPlayerId).bankrupt || state.game.over) return '';
   const problem = tradeStartProblem(state);
   return '<button type="button" class="trade-btn" data-player-id="' + player.id + '"' +
     (problem ? ' disabled title="' + escapeHtml(problem) + '"' : '') + '>বাণিজ্য</button>';
@@ -850,7 +1002,8 @@ function renderDecision(state) {
 
   // Auction: everyone sees the same panel; bidders get buttons.
   const seller = decision.sellerId ? playerById(decision.sellerId) : null;
-  const iAmSeller = decision.sellerId === myPlayerId;
+  // The seller and bankrupt players only watch the auction.
+  const iAmSeller = decision.sellerId === myPlayerId || me.bankrupt;
   const highest = decision.highestBidderId ? playerById(decision.highestBidderId) : null;
   const iPassed = decision.passedIds.includes(myPlayerId);
   const iAmHighest = decision.highestBidderId === myPlayerId;
@@ -915,6 +1068,13 @@ function updateCountdown() {
   // Trade offers (incoming panel + my outgoing offer)
   updateTradeCountdowns();
 
+  // Debt countdown
+  const openDebt = game.debts && game.debts[0];
+  if (openDebt && !debtPanel.hidden) {
+    showCountdown(debtTimerFill, debtTimerText, debtTimer, openDebt.deadline,
+      setup.debtResolveSeconds, DECISION_WARNING_SECONDS * 3);
+  }
+
   // Auto-close the card when its time is up
   if (game.card && !cardModal.hidden && cardTimeIsUp(game.card)) cardModal.hidden = true;
 
@@ -947,7 +1107,7 @@ function renderLog(state) {
 
 // Draw pieces at their DISPLAY positions (which lag during animation).
 function drawPieces() {
-  const players = latestState.players.map((p) => ({
+  const players = latestState.players.filter((p) => !p.bankrupt).map((p) => ({
     ...p,
     position: displayPositions[p.id] !== undefined ? displayPositions[p.id] : p.position
   }));
@@ -969,6 +1129,8 @@ function renderAll() {
   renderBankStock(state);
   renderManage(state);
   renderTrades(state);
+  renderDebt(state);
+  renderEndOfGame(state);
   renderTurnInfo(state);
   renderControls(state);
   renderDecision(state);

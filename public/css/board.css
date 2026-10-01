@@ -821,7 +821,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* TEMP until Step 9: debt is possible and shown in red */
+/* A player with an open debt: money shown in red */
 .game-player-money.negative {
   color: var(--color-danger);
 }
@@ -1784,4 +1784,210 @@ body {
     right: var(--space-2);
     transform: none;
   }
+}
+
+/* =========================================================
+   DEBTS, BANKRUPTCY, END OF GAME (Step 9)
+   ========================================================= */
+
+/* Debt panel: same card as the buy/auction panel, red strip */
+.debt-strip {
+  background: var(--color-danger);
+}
+
+.debt-panel.watching .debt-strip {
+  background: var(--color-border);
+}
+
+.debt-info p {
+  margin: 4px 0;
+  font-size: var(--fs-sm);
+}
+
+.debt-reason {
+  color: var(--color-text-muted);
+}
+
+.debt-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-1);
+}
+
+.debt-buttons .danger {
+  grid-column: 1 / -1;
+}
+
+.decision-btn.danger {
+  color: var(--color-danger);
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+}
+
+.decision-btn.danger:hover:not(:disabled) {
+  background: var(--color-danger-soft);
+}
+
+.debt-hint {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.debt-hint:empty {
+  display: none;
+}
+
+/* Bankrupt players: greyed out in the player list */
+.game-player.bankrupt {
+  opacity: 0.5;
+  background: var(--color-surface-muted);
+}
+
+.game-player.bankrupt .game-player-money {
+  text-decoration: line-through;
+}
+
+.badge-bankrupt {
+  color: #fff;
+  background: #495057;
+  border-color: #495057;
+}
+
+/* "খেলা ছেড়ে দিন" at the bottom of the right panel */
+.resign-btn {
+  flex: 0 0 auto;
+  margin-top: var(--space-2);
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-danger);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.resign-btn:hover {
+  background: var(--color-danger-soft);
+}
+
+/* DEBUG: set money (host only) */
+.debug-money {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-half);
+  margin-top: var(--space-1);
+  padding: var(--space-half) var(--space-1);
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-grid-line);
+  border-radius: var(--radius-md);
+}
+
+.debug-money select,
+.debug-money input {
+  max-width: 100px;
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+
+.debug-money button {
+  padding: 2px 10px;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+/* Winner screen */
+.winner-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.winner-card {
+  width: min(100%, 420px);
+  max-height: calc(100dvh - 2 * var(--space-2));
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-2) var(--space-2);
+  text-align: center;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.winner-label {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+}
+
+.winner-name {
+  margin: var(--space-half) 0 var(--space-2);
+  font-size: var(--fs-xl);
+  color: var(--color-accent);
+}
+
+.winner-ranking {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  text-align: left;
+}
+
+.winner-ranking li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.winner-ranking li.first {
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-md);
+}
+
+.winner-ranking .rank {
+  width: 1.5em;
+  font-weight: 700;
+  text-align: center;
+}
+
+.rank-token {
+  font-size: 1.1rem;
+}
+
+.rank-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.rank-money {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-weight: 600;
+}
+
+.rank-money small {
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.winner-card .detail-close {
+  width: 100%;
+  margin: 0;
 }

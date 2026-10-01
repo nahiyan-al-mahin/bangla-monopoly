@@ -39,6 +39,12 @@ const config = {
   // player choose the dice values. Without it, client dice are ignored.
   debugDice: process.env.DEBUG_DICE === '1',
 
+  // --- Debts (Step 9) ---
+  // Time a player has to raise money (sell, mortgage, trade) for a payment
+  // they can't cover. When it runs out the server sells/mortgages
+  // automatically; if that is not enough, the player goes bankrupt.
+  DEBT_RESOLVE_SECONDS: 90,
+
   // --- Trading ---
   // Time the receiver has to accept a trade offer. Timeout = reject.
   // Trade timers are separate from the turn timer (trading never pauses a turn).

@@ -70,11 +70,11 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 ### Current status (2026-10-01)
 
-- Done and confirmed: Steps 1-8 (setup, board, rooms/lobby, turns + server roll timer, buying/rent/taxes with house rule C owner auctions, cards + jail, houses/hotels/mortgage, trading). Also done: modern minimal UI, three-column layout, title-deed cards, DEBUG_DICE next-card picker.
+- Done and confirmed: Steps 1-9 (setup, board, rooms/lobby, turns + server roll timer, buying/rent/taxes with house rule C owner auctions, cards + jail, houses/hotels/mortgage, trading, debts/bankruptcy/win). Also done: modern minimal UI, three-column layout, title-deed cards, DEBUG_DICE next-card picker.
 
-- In progress: Step 9 (bankruptcy and win condition).
+- In progress: Step 10 (reconnection, polish, animations, mobile fixes).
 
-- Next: test Step 9 in a real game, then Step 10 (reconnection, polish, animations, mobile fixes).
+- Next: test Step 10 in a real game (incl. a phone over Wi-Fi), then Step 11 (deployment guide).
 
 
 - [x] 1. Project setup, Express + Socket.IO server, deploy-ready
@@ -93,7 +93,7 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 - [x] 8. Trading
 
-- [ ] 9. Bankruptcy and win condition
+- [x] 9. Bankruptcy and win condition
 
 - [ ] 10. Reconnection, polish, animations, mobile fixes
 

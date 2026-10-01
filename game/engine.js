@@ -31,6 +31,11 @@
 //      doubles -> same player, phase 'roll' with a new timer
 //      otherwise -> next player, phase 'roll' with a new timer
 //
+// DEBTS (Step 9): money never goes below zero. A payment the player can't
+// cover becomes a debt (see "Debts and bankruptcy"); while any debt or a
+// bankruptcy sale is open, the turn flow is PAUSED (the next roll / move /
+// turn end waits) and continues when everything is settled.
+//
 // Trading (Step 8) has its own timers and never changes the turn.
 // Buildings and mortgages (Step 7) are not part of the turn: any player may
 // build/sell/mortgage at any time except during an auction (see below).
@@ -127,7 +132,16 @@ const MSG = {
   tradeCantAfford: (name, total) => `${name} মোট ৳${total} (টাকা + বন্ধকী ফি) দিতে পারবেন না।`,
   tradePlayerGone: 'একজন খেলোয়াড় আর খেলায় নেই।',
   tradeNotFound: 'এই প্রস্তাবটি আর নেই।',
-  tradeNotYours: 'এই প্রস্তাবটি আপনার জন্য নয়।'
+  tradeNotYours: 'এই প্রস্তাবটি আপনার জন্য নয়।',
+  // Debts, bankruptcy, end of game
+  waitForDebts: 'দেনা মেটানো পর্যন্ত অপেক্ষা করুন।',
+  noDebt: 'আপনার কোনো দেনা নেই।',
+  notEnoughForDebt: 'দেনা শোধ করার মতো টাকা এখনো নেই।',
+  youAreBankrupt: 'আপনি দেউলিয়া — এখন শুধু খেলা দেখতে পারবেন।',
+  cannotResignNow: 'এখন খেলা ছাড়া যাবে না — চলমান সিদ্ধান্ত, কার্ড বা নিলাম শেষ হোক।',
+  cannotResignDebts: 'অন্য কারও দেনা মেটানো শেষ হলে চেষ্টা করুন।',
+  notHost: 'শুধু হোস্ট এটি করতে পারেন।',
+  badAmount: 'টাকার পরিমাণ ঠিক নেই।'
 };
 
 // server.js registers a function here. Timers change the game without any
@@ -149,6 +163,7 @@ function initGame(room) {
     p.inJail = false;
     p.jailTurns = 0;      // failed "try for doubles" attempts in jail
     p.jailFreeCards = []; // held jail-free cards: [{ deck, cardId }]
+    p.bankrupt = false;   // bankrupt players only watch
   });
 
   room.game = {
@@ -184,6 +199,20 @@ function initGame(room) {
     // Pending trade offers (see "Trading"), and an id counter for them
     trades: [],
     tradeCounter: 0,
+    // Open debts (see "Debts and bankruptcy"):
+    //   { id, playerId, amount, creditorId: playerId | 'bank' | 'each',
+    //     recipientIds (for 'each'), perPlayer (for 'each'), reason, deadline }
+    debts: [],
+    debtCounter: 0,
+    // Turn-flow pause: the step (roll timer / move / turn end) that was
+    // held back while debts or a bankruptcy sale were open: { ms, fn, isRoll }
+    paused: null,
+    step: null,            // the pausable step whose timer is running now
+    // Bankruptcy to the bank: the bankrupt's properties are auctioned one
+    // after another: { active, queue: [square indexes] }
+    bankSale: { active: false, queue: [] },
+    bankruptOrder: [],     // player ids in the order they went bankrupt
+    over: null,            // end of game: { winnerId, ranking: [...] }
     // Set by "nearest railroad/utility" cards for the next landing only:
     //   'railroadDouble' | 'utility10' | null
     landingModifier: null,
@@ -202,6 +231,7 @@ function stopGame(room) {
   if (!room.game) return;
   clearGameTimer(room);
   stopAllTrades(room); // trade offer timers too
+  stopAllDebts(room);  // and debt timers
   room.game.stopped = true;
   room.game.rollDeadline = null;
 }
@@ -271,15 +301,24 @@ function leaveJail(player) {
   player.jailTurns = 0;
 }
 
-// Move money. "to" = null means the bank.
-// TEMP until Step 9: money may go below zero. Selling/mortgaging to raise
-// cash and bankruptcy come in Step 9; until then the debt simply stays.
+// Move money that the payer is known to have (checked before).
+// "to" = null means the bank. Money never goes below zero.
 function pay(room, from, to, amount) {
   from.money -= amount;
   if (to) to.money += amount;
-  if (from.money < 0) {
-    addLog(room, `${from.name}-এর টাকা শূন্যের নিচে নেমে গেছে (${from.money})।`);
+}
+
+// A payment the player might NOT be able to cover (rent, tax, cards, fees).
+// Enough cash: paid now, returns true. Otherwise nothing is paid and a debt
+// is opened (the turn flow pauses until it is settled), returns false.
+function charge(room, from, to, amount, reason) {
+  if (amount <= 0) return true;
+  if (from.money >= amount) {
+    pay(room, from, to, amount);
+    return true;
   }
+  createDebt(room, from, to ? to.id : 'bank', amount, reason);
+  return false;
 }
 
 // ---------- Ownership and rent ----------
@@ -354,15 +393,70 @@ function clearGameTimer(room) {
 
 // Run fn after ms, unless the game was stopped in the meantime.
 // Replaces any timer that is already running.
-function setGameTimer(room, ms, fn) {
+// options.pausable: a turn-flow step (roll timer, move, turn end). While a
+// debt or a bankruptcy sale is open it does not start; it is kept in
+// game.paused and started by resumeFlow() once everything is settled.
+function setGameTimer(room, ms, fn, options = {}) {
   clearGameTimer(room);
   const game = room.game;
+  const step = options.pausable ? { ms, fn, isRoll: Boolean(options.isRoll) } : null;
+  if (step && isFlowPaused(room)) {
+    game.paused = step;
+    game.step = null;
+    if (step.isRoll) game.rollDeadline = null;
+    return;
+  }
+  game.step = step;
   game.timer = setTimeout(() => {
     game.timer = null;
+    game.step = null;
     if (game.stopped || room.game !== game) return;
     fn();
     onGameChanged(room);
   }, ms);
+}
+
+// Is the turn flow on hold? (open debts or a running bankruptcy sale)
+function isFlowPaused(room) {
+  return room.game.debts.length > 0 || room.game.bankSale.active;
+}
+
+// Hold the turn flow now: if a pausable step is waiting on its timer, stop
+// that timer and keep the step for later.
+function pauseFlow(room) {
+  const game = room.game;
+  if (game.timer && game.step) {
+    clearGameTimer(room);
+    game.paused = game.step;
+    game.step = null;
+    game.rollDeadline = null;
+  }
+}
+
+// Continue the turn flow after debts / bankruptcy sales are settled.
+function resumeFlow(room) {
+  const game = room.game;
+  if (!game || game.stopped || game.over || isFlowPaused(room)) return;
+  const step = game.paused;
+  game.paused = null;
+
+  // The current player went bankrupt: their turn is over.
+  if (currentPlayer(room).bankrupt) {
+    game.pendingDecision = null;
+    game.card = null;
+    game.landingModifier = null;
+    game.extraRoll = false;
+    advanceTurn(room);
+    return;
+  }
+  if (step) {
+    if (step.isRoll) startRollTimer(room); // fresh roll timer
+    else setGameTimer(room, step.ms, step.fn, { pausable: true });
+  } else if (!game.timer && (game.phase === 'roll' || game.phase === 'moving' || game.phase === 'auction')) {
+    // Nothing was waiting (should not happen): make sure the game goes on.
+    game.pendingDecision = null;
+    startRollTimer(room);
+  }
 }
 
 // Phase 'roll': the current player has ROLL_TIMEOUT_SECONDS to roll.
@@ -371,7 +465,7 @@ function startRollTimer(room) {
   const ms = config.ROLL_TIMEOUT_SECONDS * 1000;
   game.phase = 'roll';
   game.rollDeadline = Date.now() + ms;
-  setGameTimer(room, ms, () => autoRoll(room));
+  setGameTimer(room, ms, () => autoRoll(room), { pausable: true, isRoll: true });
 }
 
 // Time ran out: roll for the player with normal random dice.
@@ -391,6 +485,7 @@ function moveAnimationMs(move) {
 // The current player rolls. requestedDice is only used with DEBUG_DICE=1.
 function rollDice(room, player, requestedDice) {
   requireTurn(room, player);
+  if (isFlowPaused(room)) fail(MSG.waitForDebts);
   if (room.game.phase !== 'roll') fail(MSG.cannotRollNow);
 
   // Client dice are ignored completely unless debug mode is on.
@@ -453,11 +548,12 @@ function rollInJail(room, player, total, isDouble) {
       waitThenContinue(room); // turn ends, no movement
       return;
     }
-    // Third failed attempt: pay and move by this roll.
-    // TEMP until Step 9: the fine is taken even if money goes negative.
-    pay(room, player, null, config.jailFine);
+    // Third failed attempt: pay the fine and move by this roll. If the
+    // player can't pay, it becomes a debt (the landing waits for it).
     leaveJail(player);
-    addLog(room, `${config.maxJailTurns} বার চেষ্টায়ও জোড়া পড়েনি — ${player.name} ৳${config.jailFine} জরিমানা দিয়ে বের হলেন।`);
+    if (charge(room, player, null, config.jailFine, 'হাজতের জরিমানা')) {
+      addLog(room, `${config.maxJailTurns} বার চেষ্টায়ও জোড়া পড়েনি — ${player.name} ৳${config.jailFine} জরিমানা দিয়ে বের হলেন।`);
+    }
   }
 
   game.extraRoll = false; // leaving jail by rolling never gives an extra roll
@@ -518,7 +614,7 @@ function jumpToJail(room, player, path, from = player.position) {
 // Phase 'moving': wait for the walk animation, then resolve the landing.
 function startMoving(room) {
   room.game.phase = 'moving';
-  setGameTimer(room, moveAnimationMs(room.game.lastMove), () => onArrive(room));
+  setGameTimer(room, moveAnimationMs(room.game.lastMove), () => onArrive(room), { pausable: true });
 }
 
 // The piece has arrived (animation done).
@@ -543,8 +639,9 @@ function resolveLanding(room, player) {
   game.landingModifier = null;
 
   if (square.type === 'tax') {
-    pay(room, player, null, square.amount);
-    addLog(room, `${player.name} ${square.name} বাবদ ব্যাংককে ৳${square.amount} দিলেন।`);
+    if (charge(room, player, null, square.amount, square.name)) {
+      addLog(room, `${player.name} ${square.name} বাবদ ব্যাংককে ৳${square.amount} দিলেন।`);
+    }
     return;
   }
 
@@ -595,10 +692,11 @@ function resolveLanding(room, player) {
     const diceTotal = game.dice[0] + game.dice[1];
     rent = calculateRent(room, square, owner, diceTotal);
   }
-  pay(room, player, owner, rent.amount);
-  addLog(room,
-    `${player.name} ${owner.name}-কে ৳${rent.amount} ভাড়া দিলেন ` +
-    `(${square.name}${rent.detail ? ', ' + rent.detail : ''})।`);
+  if (charge(room, player, owner, rent.amount, `${square.name}-এর ভাড়া`)) {
+    addLog(room,
+      `${player.name} ${owner.name}-কে ৳${rent.amount} ভাড়া দিলেন ` +
+      `(${square.name}${rent.detail ? ', ' + rent.detail : ''})।`);
+  }
 }
 
 // A decision has been resolved: short pause, then the turn goes on.
@@ -610,7 +708,7 @@ function finishDecision(room) {
 // Phase stays 'moving' for TURN_END_DELAY_MS so everyone sees the result.
 function waitThenContinue(room) {
   room.game.phase = 'moving';
-  setGameTimer(room, config.TURN_END_DELAY_MS, () => continueTurn(room));
+  setGameTimer(room, config.TURN_END_DELAY_MS, () => continueTurn(room), { pausable: true });
 }
 
 // Extra roll after doubles, or pass the turn to the next player.
@@ -628,7 +726,10 @@ function continueTurn(room) {
 // Move on to the next player in seat order and start their roll timer.
 function advanceTurn(room) {
   const game = room.game;
-  game.turnIndex = (game.turnIndex + 1) % room.players.length;
+  // Next player in seat order who is not bankrupt
+  do {
+    game.turnIndex = (game.turnIndex + 1) % room.players.length;
+  } while (room.players[game.turnIndex].bankrupt);
   game.doublesCount = 0;
   game.extraRoll = false;
   const next = currentPlayer(room);
@@ -793,7 +894,7 @@ function restartAuctionTimer(room) {
 // Players who may bid in this auction: everyone except the seller.
 // (Step 9: bankrupt players will be left out here too.)
 function canBid(auction, player) {
-  return player.id !== auction.sellerId;
+  return player.id !== auction.sellerId && !player.bankrupt;
 }
 
 function requireAuction(room, player) {
@@ -849,7 +950,13 @@ function endAuction(room) {
   const auction = room.game.pendingDecision;
   const square = SQUARES[auction.squareIndex];
   const seller = auction.sellerId ? playerById(room, auction.sellerId) : null;
-  const winner = auction.highestBidderId ? playerById(room, auction.highestBidderId) : null;
+  let winner = auction.highestBidderId ? playerById(room, auction.highestBidderId) : null;
+  // Safety: money never goes negative. A winner who can no longer pay (or
+  // went bankrupt meanwhile) does not get the property.
+  if (winner && (winner.bankrupt || winner.money < auction.highestBid)) {
+    addLog(room, `${winner.name} আর দাম দিতে পারছেন না — নিলাম বাতিল।`);
+    winner = null;
+  }
 
   if (winner) {
     pay(room, winner, seller, auction.highestBid); // seller null = bank
@@ -863,8 +970,11 @@ function endAuction(room) {
       : `কেউ দর দেননি — ${square.name} ব্যাংকের কাছেই রইল।`);
   }
 
-  // Step 9: a bankruptcy auction may need to continue differently
-  // (e.g. the next property to auction) instead of finishing the turn.
+  // Bankruptcy sale: go on with the next property instead of the turn.
+  if (room.game.bankSale.active) {
+    continueBankSale(room);
+    return;
+  }
   finishDecision(room);
 }
 
@@ -956,7 +1066,7 @@ function cardMoveTo(room, player, index) {
 // Do what the card says. Money cards finish the turn part; move cards
 // start a new walk, and the new square is resolved like any landing.
 function applyCard(room, player, action) {
-  const others = room.players.filter((p) => p !== player);
+  const others = room.players.filter((p) => p !== player && !p.bankrupt);
 
   switch (action.type) {
     case 'moveTo':
@@ -990,24 +1100,40 @@ function applyCard(room, player, action) {
       break;
 
     case 'pay':
-      pay(room, player, null, action.amount); // TEMP until Step 9: may go negative
-      addLog(room, `${player.name} ব্যাংককে ৳${action.amount} দিলেন।`);
+      if (charge(room, player, null, action.amount, 'কার্ডের খরচ')) {
+        addLog(room, `${player.name} ব্যাংককে ৳${action.amount} দিলেন।`);
+      }
       break;
 
     case 'collectFromEach':
-      others.forEach((other) => pay(room, other, player, action.amount)); // TEMP until Step 9
-      addLog(room, `${player.name} প্রত্যেকের কাছ থেকে ৳${action.amount} করে পেলেন।`);
+      // Each other player pays; whoever can't pay gets their own debt.
+      others.forEach((other) => {
+        if (charge(room, other, player, action.amount, `${player.name}-কে কার্ডের টাকা`)) {
+          addLog(room, `${other.name} ${player.name}-কে ৳${action.amount} দিলেন।`);
+        }
+      });
       break;
 
-    case 'payEach':
-      others.forEach((other) => pay(room, player, other, action.amount)); // TEMP until Step 9
-      addLog(room, `${player.name} প্রত্যেককে ৳${action.amount} করে দিলেন।`);
+    case 'payEach': {
+      // All or nothing: if the player can't pay everyone, one debt to "each".
+      const total = action.amount * others.length;
+      if (player.money >= total) {
+        others.forEach((other) => pay(room, player, other, action.amount));
+        addLog(room, `${player.name} প্রত্যেককে ৳${action.amount} করে দিলেন।`);
+      } else if (total > 0) {
+        createDebt(room, player, 'each', total, 'প্রত্যেককে কার্ডের টাকা', {
+          recipientIds: others.map((o) => o.id),
+          perPlayer: action.amount
+        });
+      }
       break;
+    }
 
     case 'repairs': {
       const { total } = repairCost(room, player, action);
-      if (total > 0) pay(room, player, null, total); // TEMP until Step 9
-      addLog(room, `${player.name} মেরামত বাবদ ৳${total} দিলেন।`);
+      if (charge(room, player, null, total, 'মেরামত খরচ')) {
+        addLog(room, `${player.name} মেরামত বাবদ ৳${total} দিলেন।`);
+      }
       break;
     }
 
@@ -1032,6 +1158,7 @@ function applyCard(room, player, action) {
 
 function requireJailChoice(room, player) {
   requireTurn(room, player);
+  if (isFlowPaused(room)) fail(MSG.waitForDebts);
   if (!player.inJail) fail(MSG.notInJail);
   if (room.game.phase !== 'roll') fail(MSG.jailOptionsOnlyBeforeRoll);
 }
@@ -1119,6 +1246,7 @@ function unmortgageCostOf(square) {
 // Things every manage action needs: game running, no auction, my square.
 function basicProblem(room, player, index) {
   if (room.status !== 'playing' || !room.game || room.game.stopped) return MSG.notPlaying;
+  if (player.bankrupt) return MSG.youAreBankrupt;
   if (room.game.phase === 'auction') return MSG.auctionRunning;
   const square = SQUARES[index];
   if (!square || !BUYABLE_TYPES.includes(square.type)) return MSG.notYourProperty;
@@ -1379,7 +1507,7 @@ function tradeSideProblem(room, player, side) {
 function tradeProblem(room, trade) {
   const from = playerById(room, trade.fromId);
   const to = playerById(room, trade.toId);
-  if (!from || !to) return MSG.tradePlayerGone;
+  if (!from || !to || from.bankrupt || to.bankrupt) return MSG.tradePlayerGone;
   return tradeSideProblem(room, from, trade.give) || tradeSideProblem(room, to, trade.get);
 }
 
@@ -1414,8 +1542,9 @@ function removeTrade(room, trade) {
 function proposeTrade(room, player, request) {
   requirePlaying(room);
   if (room.game.phase === 'auction') fail(MSG.tradeAuction);
+  if (player.bankrupt) fail(MSG.youAreBankrupt);
   const to = playerById(room, request && request.toId);
-  if (!to) fail(MSG.tradeNoTarget);
+  if (!to || to.bankrupt) fail(MSG.tradeNoTarget);
   if (to === player) fail(MSG.tradeSelf);
   if (room.game.trades.some((t) => t.fromId === player.id)) fail(MSG.tradeOnePending);
 
@@ -1544,6 +1673,354 @@ function stopAllTrades(room) {
   });
 }
 
+// ---------- Debts and bankruptcy (Step 9) ----------
+// A payment a player can't cover is never paid partly. Instead the player
+// gets a DEBT: { amount, creditor (a player, the bank, or "each" other
+// player) }. While any debt is open the turn flow is paused.
+//
+// The debtor has DEBT_RESOLVE_SECONDS to raise money (sell buildings,
+// mortgage, trade) and press "পরিশোধ করুন", or to declare bankruptcy.
+// When the time runs out the server sells buildings (cheapest groups
+// first, evenly) and mortgages the cheapest properties until the debt is
+// covered. If that is still not enough, the player goes bankrupt.
+//
+// BANKRUPTCY
+//   1. All buildings are sold to the bank at half price.
+//   2a. To a player: they get all cash, properties and jail-free cards.
+//       For each mortgaged property they pay the bank 10% interest (may
+//       become a debt of their own).
+//   2b. To the bank: jail-free cards go back to their decks, properties
+//       become unowned + unmortgaged and are auctioned by the bank one
+//       after another (min ৳10, all remaining players may bid).
+//       For a "pay each player" card the cash is split between the others.
+//   3. The player is out (token removed, skipped in turn order).
+//   4. One player left -> game over.
+
+const debtTimers = new Map(); // debt id -> setTimeout handle
+
+function activePlayers(room) {
+  return room.players.filter((p) => !p.bankrupt);
+}
+
+function debtOf(room, player) {
+  return room.game.debts.find((d) => d.playerId === player.id) || null;
+}
+
+function creditorName(room, debt) {
+  if (debt.creditorId === 'bank') return 'ব্যাংক';
+  if (debt.creditorId === 'each') return 'প্রত্যেক খেলোয়াড়';
+  const creditor = playerById(room, debt.creditorId);
+  return creditor ? creditor.name : 'ব্যাংক';
+}
+
+// Half price of a square's buildings (a hotel counts as 5 houses).
+function buildingsSaleValue(square, houses) {
+  return (houseCostOf(square) / 2) * houses;
+}
+
+// Most money a player could raise: cash + half value of all buildings +
+// mortgage value of unmortgaged properties.
+function maxRaisable(room, player) {
+  if (!player) return 0;
+  let total = player.money;
+  Object.keys(room.game.properties).forEach((key) => {
+    const index = Number(key);
+    const state = room.game.properties[index];
+    if (state.ownerId !== player.id) return;
+    const square = SQUARES[index];
+    if (state.houses > 0) total += buildingsSaleValue(square, state.houses);
+    if (!state.mortgaged) total += mortgageValueOf(square);
+  });
+  return total;
+}
+
+function createDebt(room, player, creditorId, amount, reason, extra = {}) {
+  const game = room.game;
+  const debt = {
+    id: ++game.debtCounter,
+    playerId: player.id,
+    amount,
+    creditorId,
+    recipientIds: extra.recipientIds || null,
+    perPlayer: extra.perPlayer || null,
+    reason,
+    deadline: Date.now() + config.DEBT_RESOLVE_SECONDS * 1000
+  };
+  game.debts.push(debt);
+  pauseFlow(room);
+  addLog(room, `${player.name}-এর কাছে যথেষ্ট টাকা নেই — ${creditorName(room, debt)}-এর কাছে ৳${amount} দেনা (${reason})। ` +
+    `টাকা জোগাড়ের সময় ${config.DEBT_RESOLVE_SECONDS} সেকেন্ড।`);
+
+  debtTimers.set(debt.id, setTimeout(() => {
+    if (game.stopped || room.game !== game || !game.debts.includes(debt)) return;
+    debtTimeout(room, debt);
+    onGameChanged(room);
+  }, config.DEBT_RESOLVE_SECONDS * 1000));
+}
+
+function removeDebt(room, debt) {
+  clearTimeout(debtTimers.get(debt.id));
+  debtTimers.delete(debt.id);
+  room.game.debts = room.game.debts.filter((d) => d !== debt);
+}
+
+function stopAllDebts(room) {
+  if (!room.game || !room.game.debts) return;
+  room.game.debts.forEach((d) => {
+    clearTimeout(debtTimers.get(d.id));
+    debtTimers.delete(d.id);
+  });
+}
+
+// Pay a debt the player can now cover.
+function settleDebt(room, player, debt) {
+  if (debt.creditorId === 'each') {
+    debt.recipientIds.forEach((id) => {
+      const recipient = playerById(room, id);
+      pay(room, player, recipient && !recipient.bankrupt ? recipient : null, debt.perPlayer);
+    });
+  } else {
+    const creditor = debt.creditorId === 'bank' ? null : playerById(room, debt.creditorId);
+    // A creditor who went bankrupt meanwhile: the money goes to the bank.
+    pay(room, player, creditor && !creditor.bankrupt ? creditor : null, debt.amount);
+  }
+  removeDebt(room, debt);
+  addLog(room, `${player.name} ${creditorName(room, debt)}-কে ৳${debt.amount} দেনা শোধ করলেন।`);
+}
+
+// "পরিশোধ করুন"
+function payDebt(room, player) {
+  requirePlaying(room);
+  const debt = debtOf(room, player);
+  if (!debt) fail(MSG.noDebt);
+  if (player.money < debt.amount) fail(MSG.notEnoughForDebt);
+  settleDebt(room, player, debt);
+  resumeFlow(room);
+}
+
+// "দেউলিয়া ঘোষণা করুন" (bankrupt to the creditor of the open debt)
+function declareBankruptcy(room, player) {
+  requirePlaying(room);
+  const debt = debtOf(room, player);
+  if (!debt) fail(MSG.noDebt);
+  goBankrupt(room, player, debt.creditorId, debt.recipientIds);
+  resumeFlow(room);
+}
+
+// "খেলা ছেড়ে দিন": bankrupt to the bank. Only at calm moments, so the
+// bank sale does not interrupt someone's decision, card or auction.
+function resignGame(room, player) {
+  requirePlaying(room);
+  if (player.bankrupt) fail(MSG.youAreBankrupt);
+  const othersInDebt = room.game.debts.some((d) => d.playerId !== player.id);
+  if (othersInDebt) fail(MSG.cannotResignDebts);
+  if (!debtOf(room, player) && room.game.phase !== 'roll' && room.game.phase !== 'moving') fail(MSG.cannotResignNow);
+  pauseFlow(room);
+  addLog(room, `${player.name} খেলা ছেড়ে দিলেন।`);
+  goBankrupt(room, player, 'bank', null);
+  resumeFlow(room);
+}
+
+// Time is up: sell / mortgage automatically, then pay or go bankrupt.
+function debtTimeout(room, debt) {
+  const player = playerById(room, debt.playerId);
+  addLog(room, `${player.name}-এর দেনা মেটানোর সময় শেষ — স্বয়ংক্রিয়ভাবে বিক্রি/বন্ধক রাখা হচ্ছে।`);
+  while (player.money < debt.amount && sellOneBuildingForDebt(room, player)) { /* keep selling */ }
+  while (player.money < debt.amount && mortgageOneForDebt(room, player)) { /* keep mortgaging */ }
+
+  if (player.money >= debt.amount) {
+    settleDebt(room, player, debt);
+  } else {
+    goBankrupt(room, player, debt.creditorId, debt.recipientIds);
+  }
+  resumeFlow(room);
+}
+
+// Sell one building: cheapest group first, from the square with the most
+// buildings (keeps the group even). Returns false when nothing is left.
+function sellOneBuildingForDebt(room, player) {
+  const built = SQUARES.filter((s) => {
+    const state = room.game.properties[s.index];
+    return state && state.ownerId === player.id && state.houses > 0;
+  });
+  if (built.length === 0) return false;
+
+  built.sort((a, b) => houseCostOf(a) - houseCostOf(b) || a.index - b.index);
+  const group = built[0].group;
+  const inGroup = built.filter((s) => s.group === group);
+  const square = inGroup.reduce((best, s) => (housesOn(room, s.index) > housesOn(room, best.index) ? s : best));
+  const state = room.game.properties[square.index];
+  const half = houseCostOf(square) / 2;
+
+  if (state.houses === HOTEL && room.game.bank.houses >= 4) {
+    state.houses = 4; // hotel back to 4 houses
+    room.game.bank.hotels += 1;
+    room.game.bank.houses -= 4;
+    player.money += half;
+    addLog(room, `${player.name}-এর ${square.name}-এর হোটেল বিক্রি হলো (৳${half})।`);
+  } else if (state.houses === HOTEL) {
+    // Not enough houses in the bank to break the hotel: sell it completely.
+    state.houses = 0;
+    room.game.bank.hotels += 1;
+    player.money += half * 5;
+    addLog(room, `${player.name}-এর ${square.name}-এর হোটেল পুরোপুরি বিক্রি হলো (৳${half * 5})।`);
+  } else {
+    state.houses -= 1;
+    room.game.bank.houses += 1;
+    player.money += half;
+    addLog(room, `${player.name}-এর ${square.name}-এর একটি বাড়ি বিক্রি হলো (৳${half})।`);
+  }
+  return true;
+}
+
+// Mortgage the cheapest unmortgaged property (without buildings in its group).
+function mortgageOneForDebt(room, player) {
+  const candidates = SQUARES.filter((s) => {
+    const state = room.game.properties[s.index];
+    return state && state.ownerId === player.id && !state.mortgaged &&
+      !(s.group && groupHasBuildings(room, s.group));
+  }).sort((a, b) => a.price - b.price || a.index - b.index);
+  if (candidates.length === 0) return false;
+  const square = candidates[0];
+  room.game.properties[square.index].mortgaged = true;
+  player.money += mortgageValueOf(square);
+  addLog(room, `${player.name}-এর ${square.name} বন্ধক রাখা হলো (৳${mortgageValueOf(square)})।`);
+  return true;
+}
+
+// The player goes bankrupt to creditorId: a player id, 'bank' or 'each'.
+function goBankrupt(room, player, creditorId, recipientIds) {
+  const game = room.game;
+  // Their own open debts are replaced by the bankruptcy.
+  game.debts.filter((d) => d.playerId === player.id).forEach((d) => removeDebt(room, d));
+
+  // 1. All buildings to the bank at half price
+  let buildingCash = 0;
+  const owned = SQUARES.filter((s) => game.properties[s.index] && game.properties[s.index].ownerId === player.id);
+  owned.forEach((square) => {
+    const state = game.properties[square.index];
+    if (state.houses === 0) return;
+    buildingCash += buildingsSaleValue(square, state.houses);
+    if (state.houses === HOTEL) game.bank.hotels += 1;
+    else game.bank.houses += state.houses;
+    state.houses = 0;
+  });
+  player.money += buildingCash;
+  if (buildingCash > 0) addLog(room, `${player.name}-এর সব বাড়ি/হোটেল ব্যাংকে বিক্রি হলো (৳${buildingCash})।`);
+
+  const creditor = creditorId !== 'bank' && creditorId !== 'each' ? playerById(room, creditorId) : null;
+  const toPlayer = creditor && !creditor.bankrupt;
+
+  if (toPlayer) {
+    // 2a. Everything to the creditor
+    const cash = player.money;
+    creditor.money += cash;
+    owned.forEach((square) => { game.properties[square.index].ownerId = creditor.id; });
+    player.jailFreeCards.forEach((card) => creditor.jailFreeCards.push(card));
+    addLog(room, `${player.name} দেউলিয়া হলেন! ${creditor.name} পেলেন ৳${cash}` +
+      (owned.length ? ` ও ${owned.map((s) => s.name).join(', ')}` : '') + '।');
+    // 10% interest for every mortgaged property received
+    const interest = mortgageFee(room, owned.filter((s) => game.properties[s.index].mortgaged).map((s) => s.index));
+    if (interest > 0 && charge(room, creditor, null, interest, 'বন্ধকী সম্পত্তির 10% সুদ')) {
+      addLog(room, `${creditor.name} বন্ধকী সম্পত্তির সুদ ৳${interest} ব্যাংককে দিলেন।`);
+    }
+  } else {
+    // 2b. To the bank (or a "pay each" card: cash split between the others)
+    if (creditorId === 'each' && recipientIds) {
+      const recipients = recipientIds.map((id) => playerById(room, id)).filter((p) => p && !p.bankrupt);
+      const share = recipients.length ? Math.floor(player.money / recipients.length) : 0;
+      recipients.forEach((p) => { p.money += share; });
+      if (recipients.length) {
+        addLog(room, `${player.name}-এর ৳${share * recipients.length} বাকি খেলোয়াড়দের মধ্যে ভাগ হলো (প্রত্যেকে ৳${share})।`);
+      }
+    }
+    player.jailFreeCards.forEach((card) => game.decks[card.deck].push(card.cardId));
+    owned.forEach((square) => { delete game.properties[square.index]; }); // unowned, unmortgaged
+    addLog(room, `${player.name} দেউলিয়া হলেন! সম্পত্তি ব্যাংকের কাছে গেল।`);
+  }
+
+  // 3. Out of the game
+  player.money = 0;
+  player.jailFreeCards = [];
+  player.inJail = false;
+  player.bankrupt = true;
+  game.bankruptOrder.push(player.id);
+
+  // 4. One player left: game over
+  const left = activePlayers(room);
+  if (left.length === 1) {
+    endGame(room, left[0]);
+    return;
+  }
+
+  if (!toPlayer && owned.length > 0) startBankSale(room, owned.map((s) => s.index));
+}
+
+// Bank auctions of a bankrupt player's properties, one after another.
+function startBankSale(room, indexes) {
+  pauseFlow(room);
+  room.game.bankSale = { active: true, queue: indexes.slice() };
+  addLog(room, `ব্যাংক নিলামে তুলছে: ${indexes.map((i) => SQUARES[i].name).join(', ')}`);
+  continueBankSale(room);
+}
+
+function continueBankSale(room) {
+  const game = room.game;
+  game.pendingDecision = null;
+  if (game.bankSale.queue.length === 0) {
+    game.bankSale = { active: false, queue: [] };
+    game.phase = 'moving';
+    addLog(room, 'ব্যাংকের নিলাম শেষ।');
+    resumeFlow(room);
+    return;
+  }
+  const index = game.bankSale.queue.shift();
+  startAuction(room, index, { sellerId: null, minBid: config.auction.startingBid });
+}
+
+// Net worth for the final ranking: cash + properties (mortgaged ones count
+// price minus mortgage value) + buildings at cost.
+function netWorth(room, player) {
+  let total = player.money;
+  Object.keys(room.game.properties).forEach((key) => {
+    const index = Number(key);
+    const state = room.game.properties[index];
+    if (state.ownerId !== player.id) return;
+    const square = SQUARES[index];
+    total += state.mortgaged ? square.price - mortgageValueOf(square) : square.price;
+    if (state.houses > 0) total += houseCostOf(square) * state.houses;
+  });
+  return total;
+}
+
+function endGame(room, winner) {
+  const game = room.game;
+  // Ranking: winner first, then the reverse order of bankruptcy
+  const order = [winner.id, ...game.bankruptOrder.slice().reverse()];
+  game.over = {
+    winnerId: winner.id,
+    ranking: order.map((id, place) => {
+      const p = playerById(room, id);
+      return { id, name: p.name, place: place + 1, money: p.money, netWorth: netWorth(room, p), bankrupt: p.bankrupt };
+    })
+  };
+  addLog(room, `খেলা শেষ! বিজয়ী: ${winner.name}`);
+  stopGame(room);
+  room.status = 'finished';
+}
+
+// DEBUG_DICE=1 only: the host sets any player's cash (for testing).
+function debugSetMoney(room, player, targetId, amount) {
+  requirePlaying(room);
+  if (!config.debugDice) fail(MSG.debugOff);
+  if (room.hostId !== player.id) fail(MSG.notHost);
+  const target = playerById(room, targetId);
+  if (!target || target.bankrupt) fail(MSG.tradeNoTarget);
+  if (!Number.isInteger(amount) || amount < 0 || amount > 100000) fail(MSG.badAmount);
+  target.money = amount;
+  addLog(room, `[পরীক্ষা] হোস্ট ${target.name}-এর টাকা ৳${amount} করলেন।`);
+}
+
 // ---------- What clients may see ----------
 
 function publicGame(room) {
@@ -1572,6 +2049,11 @@ function publicGame(room) {
     card: game.card, // the card being shown right now, or null
     bank: game.bank, // houses/hotels left in the bank
     trades: publicTrades(room), // pending trade offers (with mortgage fees)
+    debts: game.debts.map((d) => ({ ...d, maxRaisable: maxRaisable(room, playerById(room, d.playerId)) })),
+    paused: isFlowPaused(room), // turn flow on hold (debts / bankruptcy sale)
+    bankSale: game.bankSale.active,
+    bankruptOrder: game.bankruptOrder,
+    over: game.over,            // end of game, or null
     serverTime: Date.now(),          // lets clients correct for clock differences
     log: game.log
   };
@@ -1591,6 +2073,10 @@ module.exports = {
   sellHotel,
   mortgageProperty,
   unmortgageProperty,
+  payDebt,
+  declareBankruptcy,
+  resignGame,
+  debugSetMoney,
   proposeTrade,
   acceptTrade,
   rejectTrade,

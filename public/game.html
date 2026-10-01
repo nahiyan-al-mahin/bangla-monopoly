@@ -81,6 +81,16 @@
 
       <h2 class="log-title">ঘটনা</h2>
       <ul id="eventLog" class="event-log"></ul>
+
+      <!-- DEBUG_DICE=1 + host only: set a player's cash -->
+      <div id="debugMoney" class="debug-money" hidden>
+        <span>টাকা সেট করুন:</span>
+        <select id="debugMoneyPlayer" aria-label="খেলোয়াড়"></select>
+        <input id="debugMoneyAmount" type="number" min="0" step="10" value="0" aria-label="টাকা">
+        <button id="debugMoneySet" type="button">সেট</button>
+      </div>
+
+      <button id="resignBtn" type="button" class="resign-btn">খেলা ছেড়ে দিন</button>
     </aside>
   </div>
 
@@ -114,6 +124,37 @@
       <p id="cardPlayer" class="card-player"></p>
       <p id="cardText" class="card-text"></p>
       <p id="cardEffect" class="card-effect"></p>
+    </div>
+  </div>
+
+  <!-- Debt: the debtor raises money and pays, or declares bankruptcy.
+       Everyone else sees who is being waited for (js/game.js). -->
+  <section id="debtPanel" class="decision-panel debt-panel" hidden aria-live="polite">
+    <div class="decision-strip debt-strip"></div>
+    <div class="decision-body">
+      <h2 id="debtTitle" class="decision-title"></h2>
+      <div id="debtInfo" class="debt-info"></div>
+      <div class="decision-timer">
+        <div class="roll-timer-bar"><div id="debtTimerFill" class="roll-timer-fill"></div></div>
+        <span id="debtTimerText" class="decision-timer-text"></span>
+      </div>
+      <div id="debtButtons" class="debt-buttons">
+        <button id="debtPay" type="button" class="decision-btn primary">পরিশোধ করুন</button>
+        <button id="debtManage" type="button" class="decision-btn secondary">আমার সম্পত্তি</button>
+        <button id="debtBankrupt" type="button" class="decision-btn danger">দেউলিয়া ঘোষণা করুন</button>
+      </div>
+      <p id="debtHint" class="debt-hint"></p>
+      <p id="debtError" class="action-error" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- End of game: winner and ranking -->
+  <div id="winnerScreen" class="winner-screen" hidden>
+    <div class="winner-card">
+      <p class="winner-label">খেলা শেষ!</p>
+      <h2 id="winnerName" class="winner-name"></h2>
+      <ol id="winnerRanking" class="winner-ranking"></ol>
+      <button id="newGameBtn" type="button" class="detail-close">নতুন খেলা</button>
     </div>
   </div>
 

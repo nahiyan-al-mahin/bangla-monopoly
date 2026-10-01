@@ -161,8 +161,8 @@ function enterRoom(response) {
 
 function showRoomState(state) {
   roomState = state;
-  if (state.status === 'playing') {
-    // Game started: everyone moves to the game page.
+  if (state.status === 'playing' || state.status === 'finished') {
+    // Game started (or over: the game page shows the winner).
     location.href = 'game.html?room=' + encodeURIComponent(state.code);
     return;
   }

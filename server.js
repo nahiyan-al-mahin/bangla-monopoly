@@ -69,6 +69,7 @@ app.get('/api/setup', (req, res) => {
     buyDecisionSeconds: config.BUY_DECISION_SECONDS,
     ownerAuctionDecisionSeconds: config.OWNER_AUCTION_DECISION_SECONDS,
     tradeResponseSeconds: config.TRADE_RESPONSE_SECONDS,
+    debtResolveSeconds: config.DEBT_RESOLVE_SECONDS,
     mortgageFeeRate: config.mortgageInterestRate, // fee for receiving a mortgaged property
     auctionSeconds: config.AUCTION_SECONDS,
     bidIncrements: config.auction.bidIncrements,
@@ -83,7 +84,7 @@ app.get('/api/setup', (req, res) => {
 function broadcastRoom(room) {
   // Trade offers that became invalid (property sold, cash gone, ...) are
   // cancelled before everyone gets the new state.
-  if (room.game) engine.cleanupTrades(room);
+  if (room.game && !room.game.stopped) engine.cleanupTrades(room);
   io.to(room.code).emit('room:state', rooms.publicState(room));
 }
 
@@ -222,6 +223,32 @@ io.on('connection', (socket) => {
   handle(socket, 'debug:nextCard', (request) => {
     const { room, player } = findPlayer(request);
     engine.debugSetNextCard(room, player, request.cardId);
+    broadcastRoom(room);
+  });
+
+  // --- Debts, bankruptcy, resigning (Step 9) ---
+  handle(socket, 'debt:pay', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.payDebt(room, player);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'debt:bankrupt', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.declareBankruptcy(room, player);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'game:resign', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.resignGame(room, player);
+    broadcastRoom(room);
+  });
+
+  // DEBUG_DICE=1 only (the engine refuses it otherwise): host sets cash
+  handle(socket, 'debug:setMoney', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.debugSetMoney(room, player, request.targetId, request.amount);
     broadcastRoom(room);
   });
 
