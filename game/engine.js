@@ -1,26 +1,33 @@
 // game/engine.js
-// Core game loop: turn order, dice, movement, GO salary, going to jail.
+// Core game loop: turn order, dice, movement, GO salary, going to jail,
+// and the server-side turn timers.
 //
 // TURN PHASES (room.game.phase):
 //
-//   'roll'  -- the current player must roll the dice.
+//   'roll'    -- waiting for the current player to roll.
+//      |        A roll timer runs (ROLL_TIMEOUT_SECONDS). If it runs out,
+//      |        the server rolls for the player (normal random dice).
+//      |  rollDice() or timeout
+//      v
+//   'moving'  -- the piece is walking; nobody can act.
+//      |        A short timer waits for the walk animation + TURN_END_DELAY_MS.
+//      |  afterMove()
+//      v
+//   [Step 5+: a pending decision (buy/auction, jail options) pauses here]
 //      |
-//      |  rollDice()
 //      v
-//   'moved' -- the piece has moved; the player may end the turn.
-//      |       (Steps 5-7 add buying, rent, building, ... in this phase.)
-//      |  endTurn()
-//      v
-//   next player, phase 'roll'
+//   continueTurn(): doubles -> same player, phase 'roll' with a new timer
+//                   otherwise -> next player, phase 'roll' with a new timer
 //
-// Special cases inside rollDice():
-//   - Doubles: the phase stays 'roll', so the same player rolls again.
-//   - 3rd double in a row, or landing on হাজতখানায় যাও: the player goes to
-//     jail (no GO salary) and the turn ends automatically (classic rule:
-//     going to jail ends your turn, even after doubles).
+// Going to jail (3rd double in a row, or landing on হাজতখানায় যাও) ends the
+// turn: no extra roll, even after doubles (classic rule).
+//
+// Only ONE timer runs per game at a time (room.game.timer). It is always
+// cleared before a new one starts, and stopGame() clears it for good.
 //
 // The server is the only one that rolls dice (crypto.randomInt).
-// Client dice values are used ONLY when config.debugDice is on.
+// Client dice values are used ONLY when config.debugDice is on, and never
+// for automatic (timeout) rolls.
 
 const crypto = require('crypto');
 const config = require('./config');
@@ -34,13 +41,19 @@ const JAIL_INDEX = SQUARES.findIndex((s) => s.type === 'jail'); // 10
 const MSG = {
   notPlaying: 'খেলা এখনো শুরু হয়নি।',
   notYourTurn: 'এখন আপনার পালা নয়।',
-  cannotRollNow: 'এখন পাশা ফেলা যাবে না। আপনার চাল শেষ করুন।',
-  rollFirst: 'আগে পাশা ফেলুন।',
-  rollAgainFirst: 'জোড়া পড়েছে! আগে আবার পাশা ফেলুন।',
+  cannotRollNow: 'এখন পাশা ফেলা যাবে না।',
   badDebugDice: 'পরীক্ষার পাশার মান 1 থেকে 6 হতে হবে।'
 };
 
-// ---------- Setup ----------
+// server.js registers a function here. Timers change the game without any
+// player request (auto roll, turn passing), so they call this to broadcast.
+let onGameChanged = () => {};
+
+function setGameChangedListener(listener) {
+  onGameChanged = listener;
+}
+
+// ---------- Setup and shutdown ----------
 
 // Called once by rooms.startGame().
 function initGame(room) {
@@ -51,16 +64,33 @@ function initGame(room) {
   });
 
   room.game = {
-    turnIndex: 0,      // index into room.players (seat order)
-    phase: 'roll',
-    doublesCount: 0,   // doubles rolled in a row during this turn
-    dice: null,        // last roll, e.g. [3, 5]
-    lastMove: null,    // last movement, so clients can animate it
-    moveCounter: 0,    // gives every move a unique id
-    log: []            // newest first, at most config.logLimit entries
+    turnIndex: 0,          // index into room.players (seat order)
+    phase: 'roll',         // 'roll' | 'moving'
+    doublesCount: 0,       // doubles rolled in a row during this turn
+    extraRoll: false,      // true after a double: same player rolls again
+    dice: null,            // last roll, e.g. [3, 5]
+    lastMove: null,        // last movement, so clients can animate it
+    moveCounter: 0,        // gives every move a unique id
+    rollDeadline: null,    // when the roll timer runs out (ms timestamp)
+    // Step 5+: a decision that must be answered before the turn can go on
+    // (e.g. { type: 'buy', ... }). Always null in Step 4.
+    pendingDecision: null,
+    timer: null,           // the one running timer (setTimeout handle)
+    stopped: false,        // true after stopGame(): timers must do nothing
+    log: []                // newest first, at most config.logLimit entries
   };
 
   addLog(room, `খেলা শুরু হলো! প্রথম চাল: ${currentPlayer(room).name}`);
+  startRollTimer(room);
+}
+
+// Stop all game timers. Called when the room is deleted, and (Step 9)
+// when the game ends.
+function stopGame(room) {
+  if (!room.game) return;
+  clearGameTimer(room);
+  room.game.stopped = true;
+  room.game.rollDeadline = null;
 }
 
 // ---------- Helpers ----------
@@ -76,7 +106,7 @@ function addLog(room, text) {
 
 // Check that the game is running and it is this player's turn.
 function requireTurn(room, player) {
-  if (room.status !== 'playing' || !room.game) fail(MSG.notPlaying);
+  if (room.status !== 'playing' || !room.game || room.game.stopped) fail(MSG.notPlaying);
   if (currentPlayer(room) !== player) fail(MSG.notYourTurn);
 }
 
@@ -102,34 +132,74 @@ function sendToJail(room, player) {
   player.inJail = true;
 }
 
-// Move on to the next player in seat order.
-function advanceTurn(room) {
-  const game = room.game;
-  game.turnIndex = (game.turnIndex + 1) % room.players.length;
-  game.phase = 'roll';
-  game.doublesCount = 0;
-  addLog(room, `এখন পালা: ${currentPlayer(room).name}`);
+// ---------- Timers ----------
+
+function clearGameTimer(room) {
+  clearTimeout(room.game.timer);
+  room.game.timer = null;
 }
 
-// ---------- Actions ----------
+// Run fn after ms, unless the game was stopped in the meantime.
+// Replaces any timer that is already running.
+function setGameTimer(room, ms, fn) {
+  clearGameTimer(room);
+  const game = room.game;
+  game.timer = setTimeout(() => {
+    game.timer = null;
+    if (game.stopped || room.game !== game) return;
+    fn();
+    onGameChanged(room);
+  }, ms);
+}
+
+// Phase 'roll': the current player has ROLL_TIMEOUT_SECONDS to roll.
+function startRollTimer(room) {
+  const game = room.game;
+  const ms = config.ROLL_TIMEOUT_SECONDS * 1000;
+  game.phase = 'roll';
+  game.rollDeadline = Date.now() + ms;
+  setGameTimer(room, ms, () => autoRoll(room));
+}
+
+// Time ran out: roll for the player with normal random dice.
+function autoRoll(room) {
+  const player = currentPlayer(room);
+  addLog(room, `সময় শেষ! ${player.name}-এর হয়ে স্বয়ংক্রিয়ভাবে পাশা ফেলা হলো।`);
+  performRoll(room, player, randomDice(), false);
+}
+
+// How long clients need to animate a move (must match public/js/game.js).
+function moveAnimationMs(move) {
+  return move.path.length * config.moveStepMs + (move.jumpTo !== null ? config.moveJumpPauseMs : 0);
+}
+
+// ---------- Turn flow ----------
 
 // The current player rolls. requestedDice is only used with DEBUG_DICE=1.
 function rollDice(room, player, requestedDice) {
   requireTurn(room, player);
-  const game = room.game;
-  if (game.phase !== 'roll') fail(MSG.cannotRollNow);
+  if (room.game.phase !== 'roll') fail(MSG.cannotRollNow);
 
   // Client dice are ignored completely unless debug mode is on.
   const debugDice = config.debugDice ? readDebugDice(requestedDice) : null;
-  const dice = debugDice || randomDice();
+  performRoll(room, player, debugDice || randomDice(), Boolean(debugDice));
+}
+
+// Roll, move and resolve the landing. Used by rollDice() and autoRoll().
+function performRoll(room, player, dice, isDebug) {
+  const game = room.game;
+  clearGameTimer(room); // the roll timer is no longer needed
+  game.rollDeadline = null;
+
   const total = dice[0] + dice[1];
   const isDouble = dice[0] === dice[1];
   game.dice = dice;
+  game.extraRoll = false;
 
   addLog(room,
     `${player.name} পাশা ফেললেন: ${dice[0]} + ${dice[1]} = ${total}` +
     (isDouble ? ' (জোড়া!)' : '') +
-    (debugDice ? ' [পরীক্ষা]' : ''));
+    (isDebug ? ' [পরীক্ষা]' : ''));
 
   // TEMP until Step 6: no jail escape rules yet. A jailed player simply
   // leaves jail on their next turn and rolls normally.
@@ -145,7 +215,7 @@ function rollDice(room, player, requestedDice) {
     sendToJail(room, player);
     game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path: [], jumpTo: JAIL_INDEX };
     addLog(room, `${player.name} পরপর ${config.maxDoublesBeforeJail} বার জোড়া ফেলেছেন — সোজা হাজতখানায়!`);
-    advanceTurn(room);
+    startMoving(room);
     return;
   }
 
@@ -168,36 +238,69 @@ function rollDice(room, player, requestedDice) {
 
   const square = SQUARES[to];
   addLog(room, `${player.name} পৌঁছালেন: ${square.name}`);
-  // Landing effects (buy, rent, tax, cards) come in Steps 5-6.
 
   // Landing on হাজতখানায় যাও: to jail, no GO salary, turn ends.
   if (square.type === 'go_to_jail') {
     sendToJail(room, player);
     game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path, jumpTo: JAIL_INDEX };
     addLog(room, `${player.name} হাজতখানায় গেলেন!`);
-    advanceTurn(room);
+    startMoving(room);
     return;
   }
 
   game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path, jumpTo: null };
 
-  if (isDouble) {
-    game.phase = 'roll'; // same player rolls again
-    addLog(room, `জোড়া পড়েছে! ${player.name} আবার পাশা ফেলবেন।`);
-  } else {
-    game.phase = 'moved';
-  }
+  // ------------------------------------------------------------------
+  // STEP 5-6 HOOK: resolve the landing square here (buy/auction, rent,
+  // tax, cards). If the player must make a choice, set
+  //   game.pendingDecision = { type: 'buy', ... }
+  // afterMove() will then wait instead of ending the turn.
+  // ------------------------------------------------------------------
+
+  game.extraRoll = isDouble; // doubles: same player rolls again after the move
+  startMoving(room);
 }
 
-// The current player ends their turn (only after moving).
-function endTurn(room, player) {
-  requireTurn(room, player);
+// Phase 'moving': wait for the animation + TURN_END_DELAY_MS, then go on.
+function startMoving(room) {
   const game = room.game;
-  if (game.phase === 'roll') {
-    fail(game.doublesCount > 0 ? MSG.rollAgainFirst : MSG.rollFirst);
+  game.phase = 'moving';
+  const waitMs = moveAnimationMs(game.lastMove) + config.TURN_END_DELAY_MS;
+  setGameTimer(room, waitMs, () => afterMove(room));
+}
+
+// The move has been shown to everyone.
+function afterMove(room) {
+  // ------------------------------------------------------------------
+  // STEP 5+ HOOK: a pending decision pauses the automatic turn end.
+  // The decision's handler (e.g. "buy" / "auction") must clear
+  // game.pendingDecision and then call continueTurn(room) itself.
+  // ------------------------------------------------------------------
+  if (room.game.pendingDecision) return;
+
+  continueTurn(room);
+}
+
+// Extra roll after doubles, or pass the turn to the next player.
+function continueTurn(room) {
+  const game = room.game;
+  if (game.extraRoll) {
+    game.extraRoll = false;
+    addLog(room, `জোড়া পড়েছে! ${currentPlayer(room).name} আবার পাশা ফেলবেন।`);
+    startRollTimer(room); // fresh timer for the extra roll
+    return;
   }
-  addLog(room, `${player.name} চাল শেষ করলেন।`);
   advanceTurn(room);
+}
+
+// Move on to the next player in seat order and start their roll timer.
+function advanceTurn(room) {
+  const game = room.game;
+  game.turnIndex = (game.turnIndex + 1) % room.players.length;
+  game.doublesCount = 0;
+  game.extraRoll = false;
+  addLog(room, `এখন পালা: ${currentPlayer(room).name}`);
+  startRollTimer(room);
 }
 
 // ---------- What clients may see ----------
@@ -210,8 +313,16 @@ function publicGame(room) {
     doublesCount: game.doublesCount,
     dice: game.dice,
     lastMove: game.lastMove,
+    rollDeadline: game.rollDeadline, // clients show a countdown to this
+    serverTime: Date.now(),          // lets clients correct for clock differences
     log: game.log
   };
 }
 
-module.exports = { initGame, rollDice, endTurn, publicGame };
+module.exports = {
+  setGameChangedListener,
+  initGame,
+  stopGame,
+  rollDice,
+  publicGame
+};

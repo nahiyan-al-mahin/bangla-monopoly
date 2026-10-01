@@ -1,4 +1,5 @@
-/* public/css/board.css — game page: board, dice, controls, players, log */
+/* public/css/board.css — game page: board, dice, controls, players, log
+   (page background is in css/theme.css) */
 
 * {
   box-sizing: border-box;
@@ -18,8 +19,8 @@ body {
   justify-content: center;
   padding: 8px;
   font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
-  background: #0f5132; /* dark green, like a game table */
   color: #1d1d1d;
+  /* page background: see css/theme.css */
 }
 
 /* ---------- Layout ----------
@@ -32,6 +33,7 @@ body {
   align-items: center;
   gap: 12px;
   width: 100%;
+  overflow-x: clip; /* the red glow below must not cause sideways scrolling */
 }
 
 /* Holds the board and the controls. Its width decides the board size.
@@ -40,9 +42,34 @@ body {
   position: relative;
   width: min(100vw - 16px, 100dvh - 16px, 900px);
   container-type: inline-size;
+  isolation: isolate; /* own stacking layer, so the glow below stays above the page background */
+}
+
+/* Soft red glow behind the board, like the red circle of the flag.
+   z-index -1 keeps it behind the board (but inside .board-area's layer). */
+.board-area::before {
+  content: '';
+  position: absolute;
+  /* A circle 1.7x the board width, centered on the board. Most of it is
+     hidden behind the board; the visible part is a red halo around it. */
+  top: -35%;
+  left: -35%;
+  width: 170%;
+  aspect-ratio: 1 / 1;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    circle closest-side,
+    rgba(244, 42, 65, 0.75) 0%,
+    rgba(244, 42, 65, 0.6) 55%,  /* about where the board edge is */
+    rgba(244, 42, 65, 0.22) 75%,
+    rgba(244, 42, 65, 0) 100%
+  );
 }
 
 .side-panel {
+  position: relative;
+  z-index: 1; /* stay above the board's red glow */
   width: min(100vw - 16px, 900px);
   padding: 12px;
   background: #fffdf2;
@@ -65,10 +92,11 @@ body {
     width: 280px;
   }
 
-  /* Controls float inside the lower half of the board center. */
+  /* Controls float inside the lower part of the board center,
+     below the title, turn info, dice and countdown. */
   .controls {
     position: absolute;
-    top: 52%;
+    top: 64%;
     left: 50%;
     transform: translateX(-50%);
     width: 56%;
@@ -103,9 +131,9 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 2.5cqw;
+  gap: 2cqw;
   text-align: center;
-  padding: 5cqw 2cqw 2cqw;
+  padding: 4cqw 2cqw 2cqw;
 }
 
 /* On phones the controls are below the board, so center the content. */
@@ -182,6 +210,52 @@ body {
   animation: dice-shake 0.45s ease-out;
 }
 
+/* ---------- Roll countdown (board center) ---------- */
+
+.roll-timer {
+  width: 40cqw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6cqw;
+}
+
+.roll-timer-bar {
+  width: 100%;
+  height: 1.6cqw;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.roll-timer-fill {
+  height: 100%;
+  width: 100%;
+  background: #198754;
+  border-radius: 999px;
+  transition: width 0.25s linear; /* smooth between the 4 updates per second */
+}
+
+.roll-timer-text {
+  font-size: 2.4cqw;
+  font-weight: 700;
+  color: #0f5132;
+}
+
+/* Last 10 seconds: red, gently pulsing */
+.roll-timer.warning .roll-timer-fill {
+  background: #e03131;
+}
+
+.roll-timer.warning .roll-timer-text {
+  color: #c92a2a;
+  animation: timer-pulse 1s ease-in-out infinite;
+}
+
+@keyframes timer-pulse {
+  50% { transform: scale(1.12); }
+}
+
 @keyframes dice-shake {
   0%   { transform: rotate(0deg) scale(1); }
   25%  { transform: rotate(-20deg) scale(1.15); }
@@ -222,10 +296,6 @@ body {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-}
-
-.control-btn.end-btn {
-  background: #b02a37;
 }
 
 .control-btn:disabled {

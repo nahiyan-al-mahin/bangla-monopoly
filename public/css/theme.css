@@ -1,0 +1,63 @@
+/* public/css/theme.css — page background shared by all pages.
+   CSS only, no image files:
+     - deep green gradient inspired by the Bangladesh flag (#006a4e)
+     - a faint repeating "nakshi kantha" pattern: diagonal running-stitch
+       lattice with small stitched dots, in a warm thread color
+     - a soft vignette so the edges are darker and the middle stands out
+   The red "flag circle" glow behind the board is in css/board.css
+   (.board-area::before), so it follows the board on every screen size.
+
+   Performance: static gradients only. No background-attachment: fixed
+   and no animation, which keeps scrolling smooth on phones. */
+
+:root {
+  --flag-green: #006a4e;
+  --flag-green-dark: #003d2c;
+  --flag-red: #f42a41;
+  --thread: 255, 228, 170; /* kantha thread color (RGB) for the pattern */
+}
+
+html {
+  background-color: var(--flag-green-dark); /* shown before CSS images paint */
+}
+
+body {
+  background-color: var(--flag-green);
+  background-image:
+    /* 1. Kantha dots: little stitched "flowers" inside each diamond */
+    radial-gradient(circle, rgba(var(--thread), 0.16) 0 1.4px, transparent 2px),
+    radial-gradient(circle, rgba(var(--thread), 0.09) 0 1px, transparent 1.6px),
+
+    /* 2. Running-stitch lattice: thin diagonal lines both ways */
+    repeating-linear-gradient(45deg,
+      transparent 0 20px,
+      rgba(var(--thread), 0.055) 20px 21px),
+    repeating-linear-gradient(-45deg,
+      transparent 0 20px,
+      rgba(var(--thread), 0.055) 20px 21px),
+
+    /* 3. Vignette: darker edges, lighter middle */
+    radial-gradient(ellipse at 50% 35%,
+      rgba(0, 0, 0, 0) 35%,
+      rgba(0, 25, 17, 0.55) 100%),
+
+    /* 4. Base: rich deep green, flag green in the middle */
+    linear-gradient(160deg, #007a58 0%, var(--flag-green) 40%, var(--flag-green-dark) 100%);
+
+  /* Dots repeat on a grid matching the lattice (21px x sqrt(2) ≈ 29.7px);
+     the second dot layer is offset by half a cell. */
+  background-size:
+    29.7px 29.7px,
+    29.7px 29.7px,
+    auto,
+    auto,
+    auto,
+    auto;
+  background-position:
+    0 0,
+    14.85px 14.85px,
+    0 0,
+    0 0,
+    0 0,
+    0 0;
+}

@@ -222,6 +222,7 @@ function updateEmptyRoomTimer(room) {
 function deleteRoom(room) {
   room.players.forEach((p) => clearTimeout(p.removeTimer));
   clearTimeout(room.deleteTimer);
+  engine.stopGame(room); // stops the roll / turn timers, if a game is running
   rooms.delete(room.code);
   console.log(`Room ${room.code} deleted (empty)`);
 }

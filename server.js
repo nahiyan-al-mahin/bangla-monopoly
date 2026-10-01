@@ -56,7 +56,10 @@ app.get('/api/setup', (req, res) => {
     nameMaxLength: config.nameMaxLength,
     roomCodeLength: config.roomCodeLength,
     roomCodeLetters: config.roomCodeLetters,
-    debugDice: config.debugDice // DEBUG_DICE=1: show the dice picker
+    debugDice: config.debugDice, // DEBUG_DICE=1: show the dice picker
+    rollTimeoutSeconds: config.ROLL_TIMEOUT_SECONDS,
+    moveStepMs: config.moveStepMs,          // piece animation speed
+    moveJumpPauseMs: config.moveJumpPauseMs // pause before jumping to jail
   });
 });
 
@@ -67,9 +70,10 @@ function broadcastRoom(room) {
   io.to(room.code).emit('room:state', rooms.publicState(room));
 }
 
-// Timers inside rooms.js (e.g. removing a disconnected lobby player)
-// call this so everyone sees the change.
+// Timers inside rooms.js (e.g. removing a disconnected lobby player) and
+// engine.js (auto roll, passing the turn) call this so everyone sees the change.
 rooms.setRoomChangedListener(broadcastRoom);
+engine.setGameChangedListener(broadcastRoom);
 
 // Register a socket event whose handler may throw a GameError.
 // The client always gets an answer through the acknowledgement callback:
@@ -184,11 +188,8 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
   });
 
-  handle(socket, 'game:endTurn', (request) => {
-    const { room, player } = findPlayer(request);
-    engine.endTurn(room, player);
-    broadcastRoom(room);
-  });
+  // There is no "end turn" request: the server passes the turn on
+  // automatically after each move (see game/engine.js).
 
   // --- Disconnect ---
 

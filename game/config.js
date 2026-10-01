@@ -23,6 +23,16 @@ const config = {
   bankHotels: 12,
 
   // --- Turns / dice ---
+  // The current player has this long to roll; then the server rolls for them.
+  ROLL_TIMEOUT_SECONDS: 30,
+  // Pause after a piece finishes moving, so everyone sees where it landed,
+  // before the turn passes on (or the extra roll after doubles starts).
+  TURN_END_DELAY_MS: 1500,
+  // Piece animation speed. The server needs it too: it waits for the walk
+  // to finish (path length x moveStepMs, + moveJumpPauseMs for a jump to
+  // jail) before starting TURN_END_DELAY_MS. Sent to clients via /api/setup.
+  moveStepMs: 180,
+  moveJumpPauseMs: 540,
   maxDoublesBeforeJail: 3, // 3 doubles in a row -> straight to jail
   logLimit: 50,            // event log keeps the latest 50 entries
   // Testing helper: start the server with DEBUG_DICE=1 to let the current

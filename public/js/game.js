@@ -18,14 +18,16 @@ const die1 = document.getElementById('die1');
 const die2 = document.getElementById('die2');
 const turnHint = document.getElementById('turnHint');
 const rollBtn = document.getElementById('rollBtn');
-const endTurnBtn = document.getElementById('endTurnBtn');
 const actionError = document.getElementById('actionError');
 const debugDiceBox = document.getElementById('debugDice');
 const debugDie1 = document.getElementById('debugDie1');
 const debugDie2 = document.getElementById('debugDie2');
+const rollTimer = document.getElementById('rollTimer');
+const rollTimerFill = document.getElementById('rollTimerFill');
+const rollTimerText = document.getElementById('rollTimerText');
 
-// How long a piece waits on each square while walking (milliseconds).
-const STEP_MS = 180;
+// Countdown turns red when this many seconds (or fewer) are left.
+const TIMER_WARNING_SECONDS = 10;
 
 let socket = null;
 let session = null;      // { code, playerToken } from localStorage
@@ -40,6 +42,10 @@ let lastAnimatedMoveId = null;
 let animating = false;
 let animationRun = 0;    // increases when a new animation replaces an old one
 let waitingForServer = false;
+
+// Server clock minus our clock (ms). The roll deadline is a server
+// timestamp, so we correct for a phone whose clock is a bit off.
+let clockOffsetMs = 0;
 
 // ---------- Small helpers ----------
 
@@ -149,31 +155,52 @@ function renderTurnInfo(state) {
   renderDie(die2, dice[1]);
 }
 
-// Buttons: shown and enabled only for the current player in the right phase.
+// The roll button is shown only to the current player while they may roll.
 function renderControls(state) {
   const game = state.game;
   const isMyTurn = game.currentPlayerId === myPlayerId;
   const canRoll = isMyTurn && game.phase === 'roll';
-  const canEnd = isMyTurn && game.phase === 'moved';
-  const busy = animating || waitingForServer;
 
   rollBtn.hidden = !canRoll;
-  endTurnBtn.hidden = !canEnd;
-  rollBtn.disabled = busy;
-  endTurnBtn.disabled = busy;
+  rollBtn.disabled = animating || waitingForServer;
   debugDiceBox.hidden = !(setup.debugDice && canRoll);
 
-  if (!isMyTurn) {
-    const current = playerById(game.currentPlayerId);
-    turnHint.textContent = `${current.name}-এর চালের অপেক্ষায়…`;
-  } else if (game.phase === 'roll') {
+  const current = playerById(game.currentPlayerId);
+  if (game.phase === 'moving') {
+    turnHint.textContent = isMyTurn ? 'আপনার চাল চলছে…' : `${current.name}-এর চাল চলছে…`;
+  } else if (!isMyTurn) {
+    turnHint.textContent = `${current.name}-এর পাশা ফেলার অপেক্ষায়…`;
+  } else {
     turnHint.textContent = game.doublesCount > 0
       ? 'জোড়া পড়েছে! আবার পাশা ফেলুন।'
       : 'আপনার পালা! পাশা ফেলুন।';
-  } else {
-    turnHint.textContent = 'চাল শেষ হলে "শেষ করুন" চাপুন।';
   }
 }
+
+// ---------- Roll countdown ----------
+// The server owns the timer; we only count down to its deadline.
+
+function updateCountdown() {
+  if (!latestState) return;
+  const game = latestState.game;
+
+  if (game.phase !== 'roll' || !game.rollDeadline) {
+    rollTimer.hidden = true;
+    return;
+  }
+
+  const totalMs = setup.rollTimeoutSeconds * 1000;
+  const leftMs = Math.max(0, game.rollDeadline - (Date.now() + clockOffsetMs));
+  const leftSeconds = Math.ceil(leftMs / 1000);
+
+  rollTimer.hidden = false;
+  rollTimerFill.style.width = Math.min(100, (leftMs / totalMs) * 100) + '%';
+  rollTimerText.textContent = `⏱ ${leftSeconds} সেকেন্ড`;
+  rollTimer.classList.toggle('warning', leftSeconds <= TIMER_WARNING_SECONDS);
+}
+
+// A few updates per second is plenty for a seconds display.
+setInterval(updateCountdown, 250);
 
 function renderLog(state) {
   eventLog.innerHTML = '';
@@ -212,6 +239,7 @@ function renderAll() {
   renderControls(state);
   renderLog(state);
   drawPieces();
+  updateCountdown();
 }
 
 // ---------- Token animation ----------
@@ -230,14 +258,14 @@ async function animateMove(move) {
   drawPieces();
 
   for (const index of move.path) {
-    await sleep(STEP_MS);
+    await sleep(setup.moveStepMs);
     if (run !== animationRun) return; // a newer move took over
     displayPositions[move.playerId] = index;
     drawPieces();
   }
 
   if (move.jumpTo !== null) {
-    await sleep(STEP_MS * 3);
+    await sleep(setup.moveJumpPauseMs);
     if (run !== animationRun) return;
     displayPositions[move.playerId] = move.jumpTo;
     drawPieces();
@@ -252,11 +280,12 @@ async function animateMove(move) {
 
 function handleState(state, isFirstLoad) {
   latestState = state;
+  clockOffsetMs = state.game.serverTime - Date.now();
   const move = state.game.lastMove;
   const isNewMove = move && move.id !== lastAnimatedMoveId;
 
   if (isFirstLoad || !isNewMove) {
-    // Nothing to animate (page just loaded, or someone ended a turn, ...).
+    // Nothing to animate (page just loaded, the turn passed on, ...).
     if (move) lastAnimatedMoveId = move.id;
     if (!animating) syncPositions();
     renderAll();
@@ -296,10 +325,6 @@ async function sendAction(eventName, extraData) {
 rollBtn.addEventListener('click', () => {
   const dice = chosenDebugDice();
   sendAction('game:roll', dice ? { dice } : {});
-});
-
-endTurnBtn.addEventListener('click', () => {
-  sendAction('game:endTurn', {});
 });
 
 // Fill the debug selects: "random" plus 1-6.
