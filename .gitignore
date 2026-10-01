@@ -15,3 +15,6 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# Local design reference images (not part of the game)
+reference/

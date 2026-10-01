@@ -70,11 +70,11 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 ### Current status (2026-10-01)
 
-- Done and confirmed: Steps 1-10 (setup, board, rooms/lobby, turns + server roll timer, buying/rent/taxes with house rule C owner auctions, cards + jail, houses/hotels/mortgage, trading, debts/bankruptcy/win, reconnection/polish/mobile). Also done: modern minimal UI, three-column layout, title-deed cards, DEBUG_DICE next-card picker.
+- Done and confirmed: all Steps 1-11, the game is deployed (setup, board, rooms/lobby, turns + server roll timer, buying/rent/taxes with house rule C owner auctions, cards + jail, houses/hotels/mortgage, trading, debts/bankruptcy/win, reconnection/polish/mobile). Also done: modern minimal UI, three-column layout, title-deed cards, DEBUG_DICE next-card picker.
 
-- In progress: pre-deploy check (README, Render settings), then Step 11 (deployment guide).
+- In progress: UI-only "3D glass" redesign (no rule or logic changes).
 
-- Next: Step 11 (step-by-step deployment guide for Render + GitHub).
+- Next: test the redesign on desktop and phones, then redeploy.
 
 
 - [x] 1. Project setup, Express + Socket.IO server, deploy-ready
@@ -97,7 +97,7 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 - [x] 10. Reconnection, polish, animations, mobile fixes
 
-- [ ] 11. Deployment guide for Render + GitHub
+- [x] 11. Deployment guide for Render + GitHub
 
 Update this checklist when I confirm a step is done.
 
