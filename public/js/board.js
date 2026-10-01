@@ -1,12 +1,16 @@
 // public/js/board.js
-// Step 2: draws the static board from /api/board and shows a detail card
-// when a square is clicked. No game logic here.
+// Draws the board from /api/board, shows a detail card when a square is
+// clicked, and draws the players' pieces on their squares.
+// Needs js/common.js (money, escapeHtml). No game logic here.
+//
+// Use from a page script:
+//   await loadBoard();              // fetch data and draw the 40 squares
+//   renderPieces(players, setup);   // put each player's piece on its square
 
 const boardEl = document.getElementById('board');
 const detailDialog = document.getElementById('detailDialog');
 const detailContent = document.getElementById('detailContent');
 const detailClose = document.getElementById('detailClose');
-const loadError = document.getElementById('loadError');
 
 // Filled in after loading /api/board
 let GROUPS = {};
@@ -17,20 +21,6 @@ let RULES = {};
 const DARK_GROUPS = ['brown', 'pink', 'red', 'green', 'darkblue'];
 
 // ---------- Small helpers ----------
-
-// Format money: 1500 -> "৳1500" (English digits by default, SPEC §9)
-function money(amount) {
-  return '৳' + amount;
-}
-
-// Escape text before putting it inside HTML.
-function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 // Mortgage value = price x mortgageRatio (half price).
 function mortgageValue(square) {
@@ -110,12 +100,39 @@ function createSquareElement(square) {
   body.innerHTML = html;
   el.appendChild(body);
 
+  // Players' pieces standing on this square are drawn in here.
+  const pieces = document.createElement('div');
+  pieces.className = 'square-pieces';
+  el.appendChild(pieces);
+
   return el;
 }
 
 function renderBoard() {
   SQUARES.forEach((square) => {
     boardEl.appendChild(createSquareElement(square));
+  });
+}
+
+// Draw every player's piece on the square at player.position.
+// setup = { pieces, colors } from /api/setup.
+function renderPieces(players, setup) {
+  boardEl.querySelectorAll('.square-pieces').forEach((el) => {
+    el.innerHTML = '';
+  });
+
+  players.forEach((player) => {
+    const piece = findById(setup.pieces, player.piece);
+    const color = findById(setup.colors, player.color);
+    const squareEl = boardEl.querySelector('.square[data-index="' + player.position + '"]');
+    if (!piece || !squareEl) return;
+
+    const marker = document.createElement('span');
+    marker.className = 'piece-marker';
+    marker.textContent = piece.emoji;
+    marker.title = player.name;
+    if (color) marker.style.borderColor = color.hex;
+    squareEl.querySelector('.square-pieces').appendChild(marker);
   });
 }
 
@@ -273,21 +290,16 @@ detailDialog.addEventListener('click', (event) => {
   if (event.target === detailDialog) detailDialog.close();
 });
 
-// ---------- Start ----------
+// ---------- Loading ----------
 
+// Fetch the board data and draw it. Throws if the data cannot be loaded,
+// so the page script can show an error message.
 async function loadBoard() {
-  try {
-    const response = await fetch('/api/board');
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    const data = await response.json();
-    GROUPS = data.groups;
-    SQUARES = data.squares;
-    RULES = data.rules;
-    renderBoard();
-  } catch (err) {
-    console.error('Could not load board data:', err);
-    loadError.hidden = false;
-  }
+  const response = await fetch('/api/board');
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+  const data = await response.json();
+  GROUPS = data.groups;
+  SQUARES = data.squares;
+  RULES = data.rules;
+  renderBoard();
 }
-
-loadBoard();

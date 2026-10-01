@@ -1,13 +1,16 @@
 // server.js
 // Entry point: Express serves the static frontend from /public,
 // Socket.IO handles real-time communication with players.
+// Room rules live in game/rooms.js; this file only wires sockets to them.
 
 const path = require('path');
 const http = require('http');
 const express = require('express');
 const { Server } = require('socket.io');
 const config = require('./game/config');
+const rooms = require('./game/rooms');
 const { GROUPS, SQUARES } = require('./data/board');
+const { PIECES } = require('./data/pieces');
 
 // Render (and most hosts) give us the port in an environment variable.
 const PORT = process.env.PORT || 3000;
@@ -16,7 +19,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Serve everything in /public (index.html, css, js).
+// Serve everything in /public (html, css, js).
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Health check endpoint (used by Render to know the server is alive).
@@ -41,30 +44,142 @@ app.get('/api/board', (req, res) => {
   });
 });
 
-// --- Socket.IO ---
-io.on('connection', (socket) => {
-  console.log(`Client connected: ${socket.id}`);
-  broadcastOnlineCount();
-
-  // Ping round-trip test: the client sends its timestamp,
-  // we immediately send it back through the acknowledgement callback.
-  socket.on('latency:ping', (clientTime, ack) => {
-    // Only reply if the client actually passed a callback function.
-    if (typeof ack === 'function') {
-      ack({ clientTime, serverTime: Date.now() });
-    }
-  });
-
-  socket.on('disconnect', (reason) => {
-    console.log(`Client disconnected: ${socket.id} (${reason})`);
-    broadcastOnlineCount();
+// Lobby options for the browser: tokens, colors and limits.
+app.get('/api/setup', (req, res) => {
+  res.json({
+    pieces: PIECES,
+    colors: config.playerColors,
+    minPlayers: config.minPlayers,
+    maxPlayers: config.maxPlayers,
+    nameMaxLength: config.nameMaxLength,
+    roomCodeLength: config.roomCodeLength,
+    roomCodeLetters: config.roomCodeLetters
   });
 });
 
-// Tell every connected client how many clients are online.
-function broadcastOnlineCount() {
-  io.emit('online:count', io.engine.clientsCount);
+// ---------- Socket.IO ----------
+
+// Send the latest room state to everyone in the room.
+function broadcastRoom(room) {
+  io.to(room.code).emit('room:state', rooms.publicState(room));
 }
+
+// Timers inside rooms.js (e.g. removing a disconnected lobby player)
+// call this so everyone sees the change.
+rooms.setRoomChangedListener(broadcastRoom);
+
+// Register a socket event whose handler may throw a RoomError.
+// The client always gets an answer through the acknowledgement callback:
+//   success: { ok: true, ...whatever the handler returned }
+//   failure: { ok: false, error: 'Bangla message' }
+function handle(socket, eventName, handler) {
+  socket.on(eventName, (data, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    const request = data && typeof data === 'object' ? data : {};
+    try {
+      const result = handler(request) || {};
+      reply({ ok: true, ...result });
+    } catch (err) {
+      if (err instanceof rooms.RoomError) {
+        reply({ ok: false, error: err.message });
+      } else {
+        console.error(`Error in "${eventName}":`, err);
+        reply({ ok: false, error: 'সার্ভারে একটি সমস্যা হয়েছে। আবার চেষ্টা করুন।' });
+      }
+    }
+  });
+}
+
+io.on('connection', (socket) => {
+  // Link this socket to a player: join the Socket.IO room for broadcasts
+  // and remember who it is (only used to notice the disconnect).
+  function attach(room, player) {
+    if (socket.data.code && socket.data.code !== room.code) {
+      socket.leave(socket.data.code);
+    }
+    socket.join(room.code);
+    socket.data.code = room.code;
+    socket.data.playerToken = player.token;
+    rooms.connectPlayer(room, player, socket.id);
+  }
+
+  // What create/join/resume send back to the player.
+  function sessionReply(room, player) {
+    return {
+      code: room.code,
+      playerToken: player.token,
+      playerId: player.id,
+      state: rooms.publicState(room)
+    };
+  }
+
+  // Every request after create/join carries { code, playerToken }.
+  // The player is found by that token, never by socket id.
+  function findPlayer(request) {
+    return rooms.getRoomAndPlayer(request.code, request.playerToken);
+  }
+
+  // --- Create / join / resume ---
+
+  handle(socket, 'room:create', (request) => {
+    const { room, player } = rooms.createRoom(request.name);
+    attach(room, player);
+    broadcastRoom(room);
+    return sessionReply(room, player);
+  });
+
+  handle(socket, 'room:join', (request) => {
+    const { room, player } = rooms.joinRoom(request.code, request.name);
+    attach(room, player);
+    broadcastRoom(room);
+    return sessionReply(room, player);
+  });
+
+  // Page loaded or refreshed: "I already have a seat, here is my token".
+  handle(socket, 'room:resume', (request) => {
+    const { room, player } = findPlayer(request);
+    attach(room, player);
+    broadcastRoom(room);
+    return sessionReply(room, player);
+  });
+
+  // --- Lobby ---
+
+  handle(socket, 'lobby:choosePiece', (request) => {
+    const { room, player } = findPlayer(request);
+    rooms.choosePiece(room, player, request.piece);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'lobby:chooseColor', (request) => {
+    const { room, player } = findPlayer(request);
+    rooms.chooseColor(room, player, request.color);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'lobby:leave', (request) => {
+    const { room, player } = findPlayer(request);
+    rooms.leaveRoom(room, player);
+    socket.leave(room.code);
+    socket.data.code = null;
+    socket.data.playerToken = null;
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'game:start', (request) => {
+    const { room, player } = findPlayer(request);
+    rooms.startGame(room, player);
+    broadcastRoom(room); // status "playing" -> clients open game.html
+  });
+
+  // --- Disconnect ---
+
+  socket.on('disconnect', () => {
+    if (!socket.data.code) return;
+    const room = rooms.disconnectSocket(socket.data.code, socket.data.playerToken, socket.id);
+    if (room) broadcastRoom(room);
+  });
+});
 
 server.listen(PORT, () => {
   console.log(`Bangla Monopoly server running at http://localhost:${PORT}`);

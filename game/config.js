@@ -38,11 +38,24 @@ const config = {
   // --- Players / rooms ---
   minPlayers: 2,
   maxPlayers: 4, // SPEC §3: 2-4 players per room
-  playerColors: ['red', 'green', 'blue', 'yellow', 'purple', 'orange'],
+  nameMaxLength: 20, // player names: 1-20 characters after trimming
+  // Player colors (CLAUDE.md default #7). id is used in code, name/hex for display.
+  playerColors: [
+    { id: 'red',    name: 'লাল',    hex: '#e03131' },
+    { id: 'green',  name: 'সবুজ',   hex: '#2f9e44' },
+    { id: 'blue',   name: 'নীল',    hex: '#1971c2' },
+    { id: 'yellow', name: 'হলুদ',   hex: '#f2c200' },
+    { id: 'purple', name: 'বেগুনি', hex: '#7048e8' },
+    { id: 'orange', name: 'কমলা',   hex: '#f76707' }
+  ],
   roomCodeLength: 4,
   roomCodeLetters: 'ABCDEFGHJKLMNPQRSTUVWXYZ', // A-Z without I and O
 
   // --- Disconnects / cleanup (milliseconds) ---
+  // In the LOBBY, a disconnected player keeps their seat for this long
+  // (so a page refresh does not kick them out). After that they are removed,
+  // and if they were the host, the next player in seat order becomes host.
+  lobbyDisconnectGraceMs: 15 * 1000,
   disconnectSkipAfterMs: 60 * 1000,         // host may skip turn after 60s
   disconnectBankruptAfterMs: 3 * 60 * 1000, // host may bankrupt after 3 min
   emptyRoomDeleteAfterMs: 10 * 60 * 1000    // empty room removed after 10 min

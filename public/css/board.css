@@ -244,7 +244,195 @@ body {
   cursor: pointer;
 }
 
-.load-error {
-  color: #fff;
+/* ---------- Pieces on the board ---------- */
+
+.square {
+  position: relative; /* the pieces layer is placed inside the square */
+}
+
+.square-pieces {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 0.2cqw;
+  pointer-events: none; /* clicks still open the square's detail card */
+}
+
+.piece-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.4cqw;
+  height: 3.4cqw;
+  font-size: 2.1cqw;
+  line-height: 1;
+  background: #fff;
+  border: 0.45cqw solid #333; /* replaced by the player's color */
+  border-radius: 50%;
+  box-shadow: 0 0.2cqw 0.5cqw rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- Game page layout ---------- */
+
+[hidden] {
+  display: none !important;
+}
+
+.game-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.side-panel {
+  width: min(100vw - 16px, 900px);
+  padding: 12px;
+  background: #fffdf2;
+  border: 2px solid #1d1d1d;
+  border-radius: 10px;
+}
+
+/* Wide screens: board on the left, panel on the right */
+@media (min-width: 900px) {
+  .game-layout {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  .game-layout .board {
+    width: min(100vw - 320px, 100dvh - 16px, 900px);
+  }
+
+  .side-panel {
+    width: 280px;
+  }
+}
+
+.panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.panel-room {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.panel-room strong {
+  font-family: monospace, sans-serif;
+  letter-spacing: 0.1em;
+  color: #1d1d1d;
+}
+
+.connection-banner {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  background: #ffe3e3;
+  color: #b02a37;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.game-players {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.game-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-left: 6px solid #999; /* replaced by the player's color */
+  border-radius: 6px;
+}
+
+.game-player.me {
+  background: #fff8db;
+}
+
+.game-player.offline {
+  opacity: 0.55;
+}
+
+.game-player-piece {
+  font-size: 1.6rem;
+}
+
+.game-player-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.game-player-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.game-player-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.game-player-money {
+  font-weight: 700;
   font-size: 1.1rem;
+  color: #0f5132;
+}
+
+.badge {
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #ddd;
+}
+
+.badge-host { background: #ffd43b; }
+.badge-me { background: #c3fae8; }
+.badge-offline { background: #ffc9c9; }
+
+/* Full-page message (loading, not a member of this room, ...) */
+.game-message {
+  max-width: 420px;
+  padding: 24px;
+  text-align: center;
+  background: #fffdf5;
+  border-radius: 12px;
+  font-size: 1.1rem;
+}
+
+.game-message p {
+  margin: 0 0 12px;
+}
+
+.game-message a {
+  display: inline-block;
+  padding: 10px 20px;
+  color: #fff;
+  background: #198754;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
 }

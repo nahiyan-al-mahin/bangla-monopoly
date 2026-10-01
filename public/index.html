@@ -6,38 +6,73 @@
   <title>বাংলা মনোপলি</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="card">
+  <!-- Shown while connecting / reconnecting to the server -->
+  <main id="connectingView" class="card">
     <h1>বাংলা মনোপলি</h1>
-    <p class="subtitle">সার্ভার সংযোগ পরীক্ষা</p>
+    <p class="subtitle">সার্ভারের সাথে সংযোগ হচ্ছে…</p>
+  </main>
 
-    <div class="row">
-      <span>সংযোগের অবস্থা:</span>
-      <span id="status" class="status status-connecting">সংযোগ হচ্ছে…</span>
-    </div>
+  <!-- Home: enter name, create or join a room -->
+  <main id="homeView" class="card" hidden>
+    <h1>বাংলা মনোপলি</h1>
+    <p class="subtitle">বন্ধুদের সাথে অনলাইনে খেলুন</p>
 
-    <div class="row">
-      <span>অনলাইনে আছেন:</span>
-      <span id="online">–</span>
-    </div>
+    <form id="homeForm" novalidate>
+      <label for="nameInput">আপনার নাম</label>
+      <input id="nameInput" type="text" maxlength="20" autocomplete="nickname" placeholder="যেমন: রহিম">
 
-    <button id="pingBtn" disabled>পিং পরীক্ষা করুন</button>
+      <button id="createBtn" type="button">রুম তৈরি করুন</button>
 
-    <div class="row">
-      <span>সর্বশেষ পিং:</span>
-      <span id="pingResult">–</span>
-    </div>
+      <div class="divider"><span>অথবা</span></div>
 
-    <ul id="pingLog" class="log"></ul>
+      <label for="codeInput">রুম কোড</label>
+      <input id="codeInput" class="code-input" type="text" maxlength="4"
+             autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD">
 
-    <a class="link-button" href="game.html">বোর্ড দেখুন</a>
+      <button id="joinBtn" type="submit" class="secondary">রুমে যোগ দিন</button>
+    </form>
+
+    <p id="homeError" class="error" role="alert"></p>
+  </main>
+
+  <!-- Lobby: room code, players, token and color pick, start -->
+  <main id="lobbyView" class="card lobby" hidden>
+    <h1>লবি</h1>
+
+    <section class="room-code-box">
+      <span class="room-code-label">রুম কোড</span>
+      <strong id="roomCode" class="room-code"></strong>
+      <div class="copy-row">
+        <button id="copyCodeBtn" type="button" class="small">কোড কপি করুন</button>
+        <button id="copyLinkBtn" type="button" class="small">লিংক কপি করুন</button>
+      </div>
+      <p id="copyStatus" class="hint" aria-live="polite"></p>
+    </section>
+
+    <h2>খেলোয়াড় <span id="playerCount" class="count"></span></h2>
+    <ul id="playerList" class="player-list"></ul>
+
+    <h2>আপনার টোকেন</h2>
+    <div id="pieceOptions" class="option-grid"></div>
+
+    <h2>আপনার রং</h2>
+    <div id="colorOptions" class="option-grid color-grid"></div>
+
+    <p id="lobbyError" class="error" role="alert"></p>
+
+    <button id="startBtn" type="button" hidden>খেলা শুরু করুন</button>
+    <p id="startStatus" class="hint start-status"></p>
+
+    <button id="leaveBtn" type="button" class="secondary">রুম ছেড়ে দিন</button>
   </main>
 
   <!-- Socket.IO serves its own client script at this path -->
   <script src="/socket.io/socket.io.js"></script>
-  <script src="client.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/home.js"></script>
 </body>
 </html>

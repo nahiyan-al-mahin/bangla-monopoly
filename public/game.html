@@ -3,27 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>বাংলা মনোপলি — বোর্ড</title>
+  <title>বাংলা মনোপলি — খেলা</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/board.css">
 </head>
 <body>
-  <!-- The board: an 11x11 grid. js/board.js fills in the 40 squares. -->
-  <div id="board" class="board">
-    <!-- Center area (grid rows/columns 2-10) -->
-    <div class="board-center">
-      <h1 class="board-title">বাংলা মনোপলি</h1>
-      <div class="deck-row">
-        <div class="deck deck-chance">❓ ভাগ্য</div>
-        <div class="deck deck-community">🤝 সমাজকল্যাণ</div>
-      </div>
-      <p class="board-hint">যেকোনো ঘরে চাপ দিয়ে বিস্তারিত দেখুন</p>
-    </div>
+  <!-- Shown until we know who the player is, or when something is wrong -->
+  <div id="gameMessage" class="game-message">
+    <p id="gameMessageText">লোড হচ্ছে…</p>
+    <a id="gameMessageHome" href="/" hidden>হোম পেজে যান</a>
   </div>
 
-  <p id="loadError" class="load-error" hidden>বোর্ডের তথ্য লোড করা যায়নি। পেজটি আবার চালু করুন।</p>
+  <div id="gameLayout" class="game-layout" hidden>
+    <!-- The board: an 11x11 grid. js/board.js fills in the 40 squares. -->
+    <div id="board" class="board">
+      <!-- Center area (grid rows/columns 2-10) -->
+      <div class="board-center">
+        <h1 class="board-title">বাংলা মনোপলি</h1>
+        <div class="deck-row">
+          <div class="deck deck-chance">❓ ভাগ্য</div>
+          <div class="deck deck-community">🤝 সমাজকল্যাণ</div>
+        </div>
+        <p class="board-hint">যেকোনো ঘরে চাপ দিয়ে বিস্তারিত দেখুন</p>
+      </div>
+    </div>
+
+    <!-- Side panel: players (money, properties and log come in later steps) -->
+    <aside class="side-panel">
+      <div class="panel-header">
+        <h2>খেলোয়াড়</h2>
+        <span class="panel-room">রুম: <strong id="gameRoomCode"></strong></span>
+      </div>
+      <p id="connectionBanner" class="connection-banner" hidden>সংযোগ বিচ্ছিন্ন, আবার চেষ্টা হচ্ছে…</p>
+      <ul id="gamePlayers" class="game-players"></ul>
+    </aside>
+  </div>
 
   <!-- Square detail card (filled in by js/board.js) -->
   <dialog id="detailDialog" class="detail-dialog">
@@ -31,6 +47,9 @@
     <button id="detailClose" class="detail-close" type="button">বন্ধ করুন</button>
   </dialog>
 
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/common.js"></script>
   <script src="js/board.js"></script>
+  <script src="js/game.js"></script>
 </body>
 </html>
