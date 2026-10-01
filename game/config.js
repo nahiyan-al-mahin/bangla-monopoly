@@ -45,11 +45,16 @@ const config = {
   // --- Bankruptcy ---
   mortgageInterestRate: 0.1, // 10% paid when receiving a mortgaged property
 
-  // --- Auction ---
+  // --- Buying / auction ---
+  // Time to decide "buy or auction" after landing on an unowned square.
+  // When it runs out, the property goes to auction.
+  BUY_DECISION_SECONDS: 20,
+  // Auction countdown. Starts when the auction opens and restarts after
+  // every valid bid. When it runs out, the highest bidder wins.
+  AUCTION_SECONDS: 10,
   auction: {
-    startingBid: 10,
-    bidIncrements: [10, 50, 100],
-    countdownSeconds: 10 // resets after every bid
+    startingBid: 10,              // lowest allowed first bid
+    bidIncrements: [10, 50, 100]  // buttons: current highest bid + these
   },
 
   // --- Players / rooms ---

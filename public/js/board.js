@@ -17,6 +17,10 @@ let GROUPS = {};
 let SQUARES = [];
 let RULES = {};
 
+// Who owns each square, for the detail card. Filled by renderOwnership():
+//   OWNERS[squareIndex] = { name, colorHex, mortgaged }
+let OWNERS = {};
+
 // Group colors that need white text on top of them (the rest use black text).
 const DARK_GROUPS = ['brown', 'pink', 'red', 'green', 'darkblue'];
 
@@ -114,6 +118,36 @@ function renderBoard() {
   });
 }
 
+// Show owners on the board: an inset border + corner marker in the owner's
+// color. Mortgaged squares get the "mortgaged" class (dimmed, Step 7).
+// properties = state.game.properties, setup = { colors } from /api/setup.
+function renderOwnership(properties, players, setup) {
+  OWNERS = {};
+  boardEl.querySelectorAll('.square').forEach((squareEl) => {
+    const index = Number(squareEl.dataset.index);
+    const owned = properties[index];
+    const owner = owned ? players.find((p) => p.id === owned.ownerId) : null;
+    const color = owner ? findById(setup.colors, owner.color) : null;
+
+    squareEl.classList.toggle('owned', Boolean(owner));
+    squareEl.classList.toggle('mortgaged', Boolean(owned && owned.mortgaged));
+    if (owner) {
+      squareEl.style.setProperty('--owner-color', color ? color.hex : '#333');
+      OWNERS[index] = { name: owner.name, colorHex: color ? color.hex : '#333', mortgaged: owned.mortgaged };
+    } else {
+      squareEl.style.removeProperty('--owner-color');
+    }
+  });
+}
+
+// "ব্যাংক" or the owner's name (+ mortgaged note) for the detail card.
+function ownerText(index) {
+  const owner = OWNERS[index];
+  if (!owner) return 'ব্যাংক';
+  return '<span class="owner-dot" style="background:' + owner.colorHex + '"></span>' +
+    escapeHtml(owner.name) + (owner.mortgaged ? ' (বন্ধক রাখা)' : '');
+}
+
 // Draw every player's piece on the square at player.position.
 // setup = { pieces, colors } from /api/setup.
 function renderPieces(players, setup) {
@@ -170,7 +204,7 @@ function propertyDetailHtml(square) {
         row('বন্ধকী মূল্য', money(mortgageValue(square))) +
         row('বন্ধক ছাড়াতে', money(unmortgageCost(square))) +
       '</table>' +
-      '<p>মালিক: ব্যাংক</p>' +
+      '<p>মালিক: ' + ownerText(square.index) + '</p>' +
       '<div class="detail-note">📍 বিখ্যাত: ' + escapeHtml(square.note) + '</div>' +
     '</div>'
   );
@@ -193,7 +227,7 @@ function railroadDetailHtml(square) {
         row('বন্ধকী মূল্য', money(mortgageValue(square))) +
         row('বন্ধক ছাড়াতে', money(unmortgageCost(square))) +
       '</table>' +
-      '<p>মালিক: ব্যাংক</p>' +
+      '<p>মালিক: ' + ownerText(square.index) + '</p>' +
     '</div>'
   );
 }
@@ -213,7 +247,7 @@ function utilityDetailHtml(square) {
         row('বন্ধকী মূল্য', money(mortgageValue(square))) +
         row('বন্ধক ছাড়াতে', money(unmortgageCost(square))) +
       '</table>' +
-      '<p>মালিক: ব্যাংক</p>' +
+      '<p>মালিক: ' + ownerText(square.index) + '</p>' +
     '</div>'
   );
 }

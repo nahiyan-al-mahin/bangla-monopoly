@@ -70,6 +70,26 @@
     </aside>
   </div>
 
+  <!-- Buy / auction panel. Not a blocking modal: everyone can still look at
+       the board. On phones it sits at the bottom of the screen. -->
+  <section id="decisionPanel" class="decision-panel" hidden aria-live="polite">
+    <div id="decisionStrip" class="decision-strip"></div>
+    <div class="decision-body">
+      <h2 id="decisionTitle" class="decision-title"></h2>
+      <p id="decisionSubtitle" class="decision-subtitle"></p>
+      <div id="decisionInfo" class="decision-info"></div>
+
+      <div class="decision-timer">
+        <div class="roll-timer-bar"><div id="decisionTimerFill" class="roll-timer-fill"></div></div>
+        <span id="decisionTimerText" class="decision-timer-text"></span>
+      </div>
+
+      <p id="decisionMyCash" class="decision-cash"></p>
+      <div id="decisionButtons" class="decision-buttons"></div>
+      <p id="decisionError" class="action-error" role="alert"></p>
+    </div>
+  </section>
+
   <!-- Square detail card (filled in by js/board.js) -->
   <dialog id="detailDialog" class="detail-dialog">
     <div id="detailContent"></div>

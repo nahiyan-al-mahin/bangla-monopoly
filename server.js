@@ -58,6 +58,10 @@ app.get('/api/setup', (req, res) => {
     roomCodeLetters: config.roomCodeLetters,
     debugDice: config.debugDice, // DEBUG_DICE=1: show the dice picker
     rollTimeoutSeconds: config.ROLL_TIMEOUT_SECONDS,
+    buyDecisionSeconds: config.BUY_DECISION_SECONDS,
+    auctionSeconds: config.AUCTION_SECONDS,
+    bidIncrements: config.auction.bidIncrements,
+    startingBid: config.auction.startingBid,
     moveStepMs: config.moveStepMs,          // piece animation speed
     moveJumpPauseMs: config.moveJumpPauseMs // pause before jumping to jail
   });
@@ -190,6 +194,32 @@ io.on('connection', (socket) => {
 
   // There is no "end turn" request: the server passes the turn on
   // automatically after each move (see game/engine.js).
+
+  // Buy decision (only the current player, only in phase 'buy')
+  handle(socket, 'game:buy', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.buyProperty(room, player);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'game:decline', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.declineProperty(room, player);
+    broadcastRoom(room);
+  });
+
+  // Auction (any player who has not passed)
+  handle(socket, 'auction:bid', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.placeBid(room, player, request.amount);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'auction:pass', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.passAuction(room, player);
+    broadcastRoom(room);
+  });
 
   // --- Disconnect ---
 

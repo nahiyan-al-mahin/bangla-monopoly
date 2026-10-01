@@ -409,6 +409,176 @@ body {
 .corner .square-name { font-size: 1.8cqw; }
 .corner .square-icon { font-size: 4.5cqw; }
 
+/* ---------- Owned squares ---------- */
+
+/* A thick inset border in the owner's color, plus a small triangle in the
+   outer corner, so ownership is visible even on tiny phone squares. */
+.square.owned {
+  box-shadow: inset 0 0 0 0.45cqw var(--owner-color);
+}
+
+.square.owned::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  pointer-events: none;
+}
+
+/* Corner marker on the outer edge of each side */
+.side-bottom.owned::after { bottom: 0; right: 0; border-width: 0 0 2.2cqw 2.2cqw; border-color: transparent transparent var(--owner-color) transparent; }
+.side-top.owned::after    { top: 0; left: 0;     border-width: 2.2cqw 2.2cqw 0 0; border-color: var(--owner-color) transparent transparent transparent; }
+.side-left.owned::after   { bottom: 0; left: 0;  border-width: 2.2cqw 0 0 2.2cqw; border-color: transparent transparent transparent var(--owner-color); }
+.side-right.owned::after  { top: 0; right: 0;    border-width: 0 2.2cqw 2.2cqw 0; border-color: transparent var(--owner-color) transparent transparent; }
+
+/* Mortgaged (Step 7): dimmed */
+.square.mortgaged .square-body,
+.square.mortgaged .strip {
+  opacity: 0.4;
+  filter: grayscale(0.6);
+}
+
+/* Owner name in the detail card */
+.owner-dot {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 4px;
+  border-radius: 50%;
+  border: 1px solid #333;
+  vertical-align: -0.05em;
+}
+
+/* ---------- Buy / auction panel ----------
+   Fixed card, not blocking the page. Phones: bottom sheet. */
+
+.decision-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(100vw - 16px, 400px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  background: #fffdf2;
+  border: 2px solid #1d1d1d;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  animation: panel-in 0.25s ease-out;
+}
+
+@keyframes panel-in {
+  from { transform: translate(-50%, 30px); opacity: 0; }
+  to   { transform: translate(-50%, 0); opacity: 1; }
+}
+
+/* Wide screens: in the middle of the screen, over the board */
+@media (min-width: 900px) {
+  .decision-panel {
+    bottom: auto;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    animation: none;
+  }
+}
+
+.decision-strip {
+  height: 14px;
+  border-bottom: 2px solid #1d1d1d;
+  border-radius: 10px 10px 0 0;
+}
+
+.decision-body {
+  padding: 10px 14px 14px;
+  text-align: center;
+}
+
+.decision-title {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.decision-subtitle {
+  margin: 2px 0 6px;
+  font-weight: 600;
+  color: #444;
+}
+
+.decision-info p {
+  margin: 2px 0;
+}
+
+.decision-rent {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.decision-note {
+  font-size: 0.9rem;
+  color: #b02a37;
+  font-weight: 600;
+}
+
+.decision-note.good {
+  color: #198754;
+}
+
+.decision-timer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 8px 0 4px;
+}
+
+.decision-timer .roll-timer-bar {
+  height: 8px;
+}
+
+.decision-timer-text {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #0f5132;
+}
+
+.decision-timer.warning .roll-timer-fill { background: #e03131; }
+.decision-timer.warning .decision-timer-text { color: #c92a2a; }
+
+.decision-cash {
+  margin: 4px 0;
+  font-weight: 600;
+}
+
+.decision-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.decision-btn {
+  padding: 10px 6px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  background: #198754;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.decision-btn.auction { background: #f08c00; }
+.decision-btn.bid     { background: #1971c2; }
+.decision-btn.pass    { background: #868e96; }
+
+.decision-btn:disabled {
+  background: #ced4da;
+  color: #6c757d;
+  cursor: not-allowed;
+}
+
 /* ---------- Pieces on the board ---------- */
 
 /* Pieces on the same square sit side by side (wrapping into rows),
@@ -566,9 +736,6 @@ body {
 }
 
 .game-player {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   margin-top: 6px;
   padding: 8px 10px;
   background: #fff;
@@ -590,6 +757,12 @@ body {
 
 .game-player.offline {
   opacity: 0.55;
+}
+
+.game-player-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .game-player-piece {
@@ -618,6 +791,45 @@ body {
   font-weight: 700;
   font-size: 1.1rem;
   color: #0f5132;
+}
+
+/* TEMP until Step 9: debt is possible and shown in red */
+.game-player-money.negative {
+  color: #e03131;
+}
+
+/* Owned squares, as small chips grouped by color group */
+.prop-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 6px;
+}
+
+.prop-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.prop-chip {
+  padding: 0 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.6;
+  color: #1d1d1d;
+  background: var(--chip-color);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.prop-chip.dark {
+  color: #fff;
+}
+
+.prop-chip.mortgaged {
+  opacity: 0.45;
+  text-decoration: line-through;
 }
 
 .badge {

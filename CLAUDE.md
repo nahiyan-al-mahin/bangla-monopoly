@@ -76,7 +76,7 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 - [x] 4. Core game loop: turns, dice, movement, GO salary
 
-- [ ] 5. Buying, rent, taxes, auction
+- [x] 5. Buying, rent, taxes, auction
 
 - [ ] 6. Cards and jail logic
 
