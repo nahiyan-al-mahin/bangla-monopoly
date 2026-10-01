@@ -1,112 +1,141 @@
-/* public/css/board.css — game page: board, dice, controls, players, log
-   (page background is in css/theme.css) */
-
-* {
-  box-sizing: border-box;
-}
-
-[hidden] {
-  display: none !important;
-}
+/* public/css/board.css — game page: layout, board, dice, controls,
+   panels, cards, log and the buy/auction panel.
+   All colors, radii, shadows and font sizes come from the design tokens
+   at the top of style.css. */
 
 body {
-  margin: 0;
-  min-height: 100vh;
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 8px;
-  font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
-  color: #1d1d1d;
-  /* page background: see css/theme.css */
+  padding: var(--space-1); /* the game page uses a smaller page margin */
 }
 
-/* ---------- Layout ----------
-   Phones (default): board, then controls, then players + log, stacked.
-   Wide screens (900px+): board with controls inside its center, panel on the right. */
+/* =========================================================
+   LAYOUT
+   A CSS grid with three arrangements. The HTML order is
+   board, my properties, players + log (also the phone order).
+
+   Phones (< 900px): one column, stacked:
+       board (+ controls below it) / my properties / players + log
+   Medium (900-1279px): two columns:
+       board            | players + log
+       my properties    |
+   Wide (1280px+): three columns:
+       my properties | board | players + log
+
+   On medium and wide screens the controls sit inside the board center,
+   and everything fits the window height (no page scrolling): the board is
+   at most (window height - 16px) tall and the side panels scroll inside
+   themselves if their content is longer.
+   ========================================================= */
+
+:root {
+  --page-pad: var(--space-1);  /* body padding on each side */
+  --layout-gap: var(--space-2);
+  --left-panel: 288px;         /* "আমার সম্পত্তি" width (wide screens) */
+  --right-panel: 296px;        /* players + log width */
+  /* Tallest the board may be without page scrolling */
+  --fit-height: calc(100dvh - 2 * var(--page-pad));
+}
 
 .game-layout {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: auto;
+  grid-template-areas:
+    "board"
+    "mine"
+    "side";
+  justify-content: center;
+  align-items: start; /* panels line up with the board top */
+  gap: var(--layout-gap);
   width: 100%;
-  overflow-x: clip; /* the red glow below must not cause sideways scrolling */
 }
+
+.board-area { grid-area: board; }
+.my-panel   { grid-area: mine; }
+.side-panel { grid-area: side; }
 
 /* Holds the board and the controls. Its width decides the board size.
    "cqw" units inside are a % of this width, so everything scales together. */
 .board-area {
   position: relative;
-  width: min(100vw - 16px, 100dvh - 16px, 900px);
+  width: min(100vw - 2 * var(--page-pad), var(--fit-height), 900px);
   container-type: inline-size;
-  isolation: isolate; /* own stacking layer, so the glow below stays above the page background */
 }
 
-/* Soft red glow behind the board, like the red circle of the flag.
-   z-index -1 keeps it behind the board (but inside .board-area's layer). */
-.board-area::before {
-  content: '';
-  position: absolute;
-  /* A circle 1.7x the board width, centered on the board. Most of it is
-     hidden behind the board; the visible part is a red halo around it. */
-  top: -35%;
-  left: -35%;
-  width: 170%;
-  aspect-ratio: 1 / 1;
-  z-index: -1;
-  pointer-events: none;
-  background: radial-gradient(
-    circle closest-side,
-    rgba(244, 42, 65, 0.75) 0%,
-    rgba(244, 42, 65, 0.6) 55%,  /* about where the board edge is */
-    rgba(244, 42, 65, 0.22) 75%,
-    rgba(244, 42, 65, 0) 100%
-  );
+/* Side panels: white cards with a subtle border */
+.panel {
+  width: min(100vw - 2 * var(--page-pad), 900px);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 
-.side-panel {
-  position: relative;
-  z-index: 1; /* stay above the board's red glow */
-  width: min(100vw - 16px, 900px);
-  padding: 12px;
-  background: #fffdf2;
-  border: 2px solid #1d1d1d;
-  border-radius: 10px;
-}
-
+/* Medium: board | right panel, my properties below the board */
 @media (min-width: 900px) {
   .game-layout {
-    flex-direction: row;
-    align-items: flex-start;
-    justify-content: center;
+    grid-template-columns: auto var(--right-panel);
+    grid-template-areas:
+      "board side"
+      "mine  side";
   }
 
   .board-area {
-    width: min(100vw - 320px, 100dvh - 16px, 900px);
+    width: min(100vw - 2 * var(--page-pad) - var(--right-panel) - var(--layout-gap),
+               var(--fit-height), 900px);
+  }
+
+  .my-panel {
+    width: 100%; /* same width as the board column */
   }
 
   .side-panel {
-    width: 280px;
+    width: var(--right-panel);
+    max-height: var(--fit-height);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
   }
 
-  /* Controls float inside the lower part of the board center,
-     below the title, turn info, dice and countdown. */
-  .controls {
+  /* Controls sit in the lower part of the board center, under the
+     title, turn info, dice and timer (one tidy vertical stack).
+     ".board-area .controls" is more specific than the phone ".controls"
+     rule further down, so these values win on wider screens. */
+  .board-area .controls {
     position: absolute;
     top: 64%;
     left: 50%;
     transform: translateX(-50%);
-    width: 56%;
+    width: 44%;
     margin: 0;
+    padding: 12px var(--space-2);
   }
 }
 
-/* ---------- Board grid ---------- */
+/* Wide: my properties | board | right panel */
+@media (min-width: 1280px) {
+  .game-layout {
+    grid-template-columns: var(--left-panel) auto var(--right-panel);
+    grid-template-areas: "mine board side";
+  }
 
-/* Always square. Corners are wider than normal squares (13 vs 8 units). */
+  .board-area {
+    width: min(100vw - 2 * var(--page-pad) - var(--left-panel) - var(--right-panel) - 2 * var(--layout-gap),
+               var(--fit-height), 900px);
+  }
+
+  .my-panel {
+    width: var(--left-panel);
+    max-height: var(--fit-height);
+    overflow-y: auto;
+  }
+}
+
+/* =========================================================
+   BOARD
+   ========================================================= */
+
+/* Always square. Corners are wider than normal squares (13 vs 8 units).
+   The 1px grid gap shows the background as thin light-grey lines. */
 .board {
   width: 100%;
   aspect-ratio: 1 / 1;
@@ -115,25 +144,185 @@ body {
   grid-template-columns: minmax(0, 13fr) repeat(9, minmax(0, 8fr)) minmax(0, 13fr);
   grid-template-rows: minmax(0, 13fr) repeat(9, minmax(0, 8fr)) minmax(0, 13fr);
   gap: 1px;
-  padding: 1px;
-  background: #1d1d1d; /* shows through the gaps as grid lines */
-  border: 2px solid #1d1d1d;
+  background: var(--color-grid-line);
+  border: 1px solid var(--color-grid-line);
+  border-radius: var(--radius-lg);
+  overflow: hidden; /* rounds the outer corner squares */
+  box-shadow: var(--shadow-lg);
   container-type: inline-size;
 }
 
-/* ---------- Board center: title, whose turn, dice ---------- */
+/* ---------- Squares ---------- */
+
+.square {
+  position: relative; /* the owner bar and pieces are placed inside */
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.square:hover,
+.square:focus-visible {
+  filter: brightness(0.96);
+  outline: none;
+}
+
+/* The color strip always faces the center of the board. */
+.side-bottom { flex-direction: column; }         /* strip on top    */
+.side-top    { flex-direction: column-reverse; } /* strip on bottom */
+.side-left   { flex-direction: row-reverse; }    /* strip on right  */
+.side-right  { flex-direction: row; }            /* strip on left   */
+
+/* Flat group color (set as background-color by board.js) */
+.strip {
+  flex: 0 0 20%;
+}
+
+.square-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5cqw 0.3cqw;
+  text-align: center;
+  line-height: 1.15;
+}
+
+/* Typography: name (medium weight), then price (smaller, grey) */
+.square-name {
+  font-size: var(--board-fs-name);
+  font-weight: 500;
+  overflow-wrap: anywhere; /* long Bangla names may wrap inside narrow squares */
+}
+
+.square-sub {
+  font-size: var(--board-fs-price);
+  color: var(--color-text-muted);
+}
+
+.square-price {
+  font-size: var(--board-fs-price);
+  color: var(--color-text-muted);
+}
+
+/* Small single-color line icon (railroads, utilities, ভাগ্য, সমাজকল্যাণ) */
+.square-icon {
+  width: 2.6cqw;
+  height: 2.6cqw;
+  color: var(--color-text-muted);
+}
+
+/* ---------- Corner squares: plain text, subtle tint ---------- */
+
+/* Corners: label (and the শুরু arrow) in the upper part, tokens in one
+   row along the bottom (see ".corner .square-pieces"), so a token never
+   covers the label. */
+.corner .square-body {
+  justify-content: flex-start;
+  gap: 0.5cqw;
+  padding-top: 2cqw;
+}
+
+.corner .square-name {
+  font-size: var(--board-fs-corner);
+  font-weight: 600;
+}
+
+.corner .square-icon {
+  width: 3.2cqw;
+  height: 3.2cqw;
+}
+
+.type-go.corner           { background: var(--tint-go); }
+.type-jail.corner         { background: var(--tint-jail); }
+.type-free_parking.corner { background: var(--tint-parking); }
+.type-go_to_jail.corner   { background: var(--tint-go-to-jail); }
+
+/* ---------- Owner marker: thin bar in the owner's color ----------
+   Along the square's outer edge (away from the color strip). */
+
+.square.owned::after {
+  content: '';
+  position: absolute;
+  background: var(--owner-color);
+  pointer-events: none;
+}
+
+.side-bottom.owned::after { left: 0; right: 0; bottom: 0; height: 0.6cqw; }
+.side-top.owned::after    { left: 0; right: 0; top: 0;    height: 0.6cqw; }
+.side-left.owned::after   { top: 0; bottom: 0; left: 0;   width: 0.6cqw; }
+.side-right.owned::after  { top: 0; bottom: 0; right: 0;  width: 0.6cqw; }
+
+/* Mortgaged (Step 7): dimmed */
+.square.mortgaged .square-body,
+.square.mortgaged .strip {
+  opacity: 0.35;
+}
+
+/* ---------- Tokens on the board ----------
+   Pieces on the same square sit side by side (wrapping into rows),
+   so they never fully cover each other. */
+
+.square-pieces {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 0.3cqw;
+  pointer-events: none; /* clicks still open the square's detail card */
+}
+
+.piece-marker {
+  display: flex;
+  font-size: 1.9cqw; /* token circle = 1.75em */
+}
+
+.piece-marker .token {
+  box-shadow: 0 0 0 0.25cqw var(--color-surface), 0 0.2cqw 0.6cqw rgba(0, 0, 0, 0.3);
+}
+
+/* Corner squares: tokens in a single row at the bottom, a little smaller
+   so all 4 fit side by side under the label. */
+.corner .square-pieces {
+  flex-wrap: nowrap;
+  align-content: flex-end;
+  align-items: flex-end;
+  padding-bottom: 1cqw;
+}
+
+.corner .piece-marker {
+  font-size: 1.55cqw;
+}
+
+/* =========================================================
+   BOARD CENTER: title, whose turn, dice, timer (+ controls)
+   ========================================================= */
 
 .board-center {
   grid-row: 2 / 11;
   grid-column: 2 / 11;
-  background: #d8efd9;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 2cqw;
+  gap: 1.8cqw;
+  padding: 5cqw 2cqw 2cqw;
   text-align: center;
-  padding: 4cqw 2cqw 2cqw;
+  color: var(--center-text);
+  /* Deep green -> teal gradient with a soft light spot near the top.
+     Colors: --center-* tokens in style.css. */
+  background:
+    radial-gradient(ellipse 70% 45% at 50% 0%, var(--center-glow) 0%, transparent 100%),
+    linear-gradient(160deg, var(--center-bg-start) 0%, var(--center-bg-end) 100%);
+  border-radius: var(--center-radius); /* subtle rounded inner corners */
 }
 
 /* On phones the controls are below the board, so center the content. */
@@ -145,10 +334,11 @@ body {
 
 .board-title {
   margin: 0;
-  font-size: 6cqw;
+  font-size: var(--board-fs-title);
   font-weight: 700;
-  color: #b02a37;
-  transform: rotate(-4deg);
+  letter-spacing: 0.02em;
+  color: var(--center-text);
+  text-shadow: 0 0.2cqw 0.8cqw rgba(0, 0, 0, 0.25); /* keeps contrast on the light spot */
 }
 
 .turn-info {
@@ -159,39 +349,48 @@ body {
 }
 
 .turn-label {
-  font-size: 2.4cqw;
-  color: #444;
+  font-size: 1.7cqw;
+  color: var(--center-text-muted);
 }
 
+/* Current player: a white pill on the green center */
 .turn-name {
-  padding: 0.4cqw 2.5cqw;
-  font-size: 3.6cqw;
-  font-weight: 700;
-  background: #fff;
-  border: 0.6cqw solid var(--player-color, #333);
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8cqw;
+  padding: 0.5cqw 2cqw 0.5cqw 0.6cqw;
+  font-size: 2.6cqw;
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-md);
   overflow-wrap: anywhere;
+}
+
+.turn-token {
+  font-size: 2.4cqw;
 }
 
 /* ---------- Dice ---------- */
 
 .dice-row {
   display: flex;
-  gap: 2.5cqw;
+  gap: 1.8cqw;
 }
 
 .die {
-  width: 9cqw;
-  height: 9cqw;
+  width: 7.5cqw;
+  height: 7.5cqw;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
-  gap: 0.5cqw;
-  padding: 1.2cqw;
-  background: #fff;
-  border: 0.4cqw solid #1d1d1d;
-  border-radius: 1.5cqw;
-  box-shadow: 0 0.5cqw 1cqw rgba(0, 0, 0, 0.25);
+  gap: 0.4cqw;
+  padding: 1.1cqw;
+  background: var(--color-surface);
+  border: none;
+  border-radius: 1.2cqw;
+  box-shadow: 0 0.6cqw 1.6cqw rgba(0, 0, 0, 0.25); /* soft shadow on the green */
 }
 
 .die.empty {
@@ -203,17 +402,24 @@ body {
 }
 
 .pip.on {
-  background: #1d1d1d;
+  background: var(--color-text);
 }
 
 .die.rolling {
-  animation: dice-shake 0.45s ease-out;
+  animation: dice-shake 0.4s ease-out;
 }
 
-/* ---------- Roll countdown (board center) ---------- */
+@keyframes dice-shake {
+  0%   { transform: rotate(0deg); }
+  30%  { transform: rotate(-14deg); }
+  60%  { transform: rotate(9deg); }
+  100% { transform: rotate(0deg); }
+}
+
+/* ---------- Roll countdown ---------- */
 
 .roll-timer {
-  width: 40cqw;
+  width: 30cqw;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -222,447 +428,181 @@ body {
 
 .roll-timer-bar {
   width: 100%;
-  height: 1.6cqw;
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 999px;
+  height: 0.8cqw;
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
   overflow: hidden;
 }
 
 .roll-timer-fill {
-  height: 100%;
   width: 100%;
-  background: #198754;
-  border-radius: 999px;
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: var(--radius-pill);
   transition: width 0.25s linear; /* smooth between the 4 updates per second */
 }
 
 .roll-timer-text {
-  font-size: 2.4cqw;
-  font-weight: 700;
-  color: #0f5132;
+  font-size: 1.8cqw;
+  font-weight: 600;
+  color: var(--color-text-muted);
 }
 
-/* Last 10 seconds: red, gently pulsing */
-.roll-timer.warning .roll-timer-fill {
-  background: #e03131;
-}
+/* The roll timer sits on the green center: light colors there.
+   (The buy/auction panel keeps the normal colors above.) */
+.board-center .roll-timer-bar  { background: var(--center-track); }
+.board-center .roll-timer-fill { background: var(--center-fill); }
+.board-center .roll-timer-text { color: var(--center-text-muted); }
 
-.roll-timer.warning .roll-timer-text {
-  color: #c92a2a;
-  animation: timer-pulse 1s ease-in-out infinite;
-}
+/* Last 10 seconds: red (a lighter red that reads well on green) */
+.board-center .roll-timer.warning .roll-timer-fill { background: var(--center-warning); }
+.board-center .roll-timer.warning .roll-timer-text { color: var(--center-warning); }
 
-@keyframes timer-pulse {
-  50% { transform: scale(1.12); }
-}
-
-@keyframes dice-shake {
-  0%   { transform: rotate(0deg) scale(1); }
-  25%  { transform: rotate(-20deg) scale(1.15); }
-  50%  { transform: rotate(15deg) scale(1.1); }
-  75%  { transform: rotate(-8deg) scale(1.05); }
-  100% { transform: rotate(0deg) scale(1); }
-}
-
-/* ---------- Controls (roll / end turn) ---------- */
+/* ---------- Controls (roll button) ----------
+   Phones: a white card below the board. Wider: inside the board center
+   (see the layout section). */
 
 .controls {
-  margin-top: 10px;
-  padding: 10px 12px;
+  margin-top: var(--space-2);
+  padding: var(--space-2);
   text-align: center;
-  background: #fffdf2;
-  border: 2px solid #1d1d1d;
-  border-radius: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md); /* stands out on the green center */
 }
 
 .turn-hint {
-  margin: 0 0 8px;
-  font-weight: 600;
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
 }
 
 .control-buttons {
   display: flex;
-  gap: 8px;
+  gap: var(--space-1);
 }
 
 .control-btn {
   flex: 1;
   padding: 12px;
   font-family: inherit;
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: #fff;
-  background: #198754;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
 
+.control-btn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
 .control-btn:disabled {
-  background: #aaa;
+  color: var(--color-text-muted);
+  background: var(--color-border);
   cursor: wait;
 }
 
 .action-error {
-  margin: 6px 0 0;
-  color: #b02a37;
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-sm);
   font-weight: 600;
+  color: var(--color-danger);
 }
 
 .action-error:empty {
   margin: 0;
 }
 
+/* DEBUG_DICE picker (testing only) */
 .debug-dice {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-  padding: 6px;
-  border: 2px dashed #f08c00;
-  border-radius: 6px;
-  background: #fff4e6;
-  font-size: 0.95rem;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+  padding: var(--space-half) var(--space-1);
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-grid-line);
+  border-radius: var(--radius-md);
 }
 
 .debug-dice select {
-  padding: 4px;
+  padding: 2px 4px;
   font-family: inherit;
-  font-size: 1rem;
+  font-size: var(--fs-sm);
 }
 
-/* ---------- Squares ---------- */
-
-.square {
-  position: relative; /* the pieces layer is placed inside the square */
-  display: flex;
-  background: #fffdf2;
-  cursor: pointer;
-  overflow: hidden;
-  min-width: 0;
-  min-height: 0;
-}
-
-.square:hover,
-.square:focus-visible {
-  background: #fff3b0;
-  outline: none;
-}
-
-/* The colored strip always faces the center of the board. */
-.side-bottom { flex-direction: column; }         /* strip on top    */
-.side-top    { flex-direction: column-reverse; } /* strip on bottom */
-.side-left   { flex-direction: row-reverse; }    /* strip on right  */
-.side-right  { flex-direction: row; }            /* strip on left   */
-
-.strip {
-  flex: 0 0 22%;
-  border: 0 solid #1d1d1d;
-}
-
-.side-bottom .strip { border-bottom-width: 1px; }
-.side-top .strip    { border-top-width: 1px; }
-.side-left .strip   { border-left-width: 1px; }
-.side-right .strip  { border-right-width: 1px; }
-
-.square-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.3cqw 0.2cqw;
-  text-align: center;
-  line-height: 1.15;
-}
-
-.square-name {
-  font-size: 1.35cqw;
-  font-weight: 600;
-  overflow-wrap: anywhere; /* long Bangla names may wrap inside narrow squares */
-}
-
-.square-sub {
-  font-size: 1.05cqw;
-  color: #555;
-}
-
-.square-icon {
-  font-size: 2.6cqw;
-  line-height: 1;
-}
-
-.square-price {
-  font-size: 1.25cqw;
-  color: #333;
-}
-
-/* Corner squares are bigger: larger text, centered content. */
-.corner .square-body {
-  justify-content: center;
-  gap: 0.6cqw;
-}
-
-.corner .square-name { font-size: 1.8cqw; }
-.corner .square-icon { font-size: 4.5cqw; }
-
-/* ---------- Owned squares ---------- */
-
-/* A thick inset border in the owner's color, plus a small triangle in the
-   outer corner, so ownership is visible even on tiny phone squares. */
-.square.owned {
-  box-shadow: inset 0 0 0 0.45cqw var(--owner-color);
-}
-
-.square.owned::after {
-  content: '';
-  position: absolute;
-  width: 0;
-  height: 0;
-  border-style: solid;
-  pointer-events: none;
-}
-
-/* Corner marker on the outer edge of each side */
-.side-bottom.owned::after { bottom: 0; right: 0; border-width: 0 0 2.2cqw 2.2cqw; border-color: transparent transparent var(--owner-color) transparent; }
-.side-top.owned::after    { top: 0; left: 0;     border-width: 2.2cqw 2.2cqw 0 0; border-color: var(--owner-color) transparent transparent transparent; }
-.side-left.owned::after   { bottom: 0; left: 0;  border-width: 2.2cqw 0 0 2.2cqw; border-color: transparent transparent transparent var(--owner-color); }
-.side-right.owned::after  { top: 0; right: 0;    border-width: 0 2.2cqw 2.2cqw 0; border-color: transparent var(--owner-color) transparent transparent; }
-
-/* Mortgaged (Step 7): dimmed */
-.square.mortgaged .square-body,
-.square.mortgaged .strip {
-  opacity: 0.4;
-  filter: grayscale(0.6);
-}
-
-/* Owner name in the detail card */
-.owner-dot {
-  display: inline-block;
-  width: 0.8em;
-  height: 0.8em;
-  margin-right: 4px;
-  border-radius: 50%;
-  border: 1px solid #333;
-  vertical-align: -0.05em;
-}
-
-/* ---------- Buy / auction panel ----------
-   Fixed card, not blocking the page. Phones: bottom sheet. */
-
-.decision-panel {
-  position: fixed;
-  left: 50%;
-  bottom: 12px;
-  transform: translateX(-50%);
-  z-index: 20;
-  width: min(100vw - 16px, 400px);
-  max-height: calc(100dvh - 24px);
-  overflow-y: auto;
-  background: #fffdf2;
-  border: 2px solid #1d1d1d;
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
-  animation: panel-in 0.25s ease-out;
-}
-
-@keyframes panel-in {
-  from { transform: translate(-50%, 30px); opacity: 0; }
-  to   { transform: translate(-50%, 0); opacity: 1; }
-}
-
-/* Wide screens: in the middle of the screen, over the board */
-@media (min-width: 900px) {
-  .decision-panel {
-    bottom: auto;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    animation: none;
-  }
-}
-
-.decision-strip {
-  height: 14px;
-  border-bottom: 2px solid #1d1d1d;
-  border-radius: 10px 10px 0 0;
-}
-
-.decision-body {
-  padding: 10px 14px 14px;
-  text-align: center;
-}
-
-.decision-title {
-  margin: 0;
-  font-size: 1.3rem;
-}
-
-.decision-subtitle {
-  margin: 2px 0 6px;
-  font-weight: 600;
-  color: #444;
-}
-
-.decision-info p {
-  margin: 2px 0;
-}
-
-.decision-rent {
-  font-size: 0.9rem;
-  color: #555;
-}
-
-.decision-note {
-  font-size: 0.9rem;
-  color: #b02a37;
-  font-weight: 600;
-}
-
-.decision-note.good {
-  color: #198754;
-}
-
-.decision-timer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  margin: 8px 0 4px;
-}
-
-.decision-timer .roll-timer-bar {
-  height: 8px;
-}
-
-.decision-timer-text {
-  font-weight: 700;
-  font-size: 0.95rem;
-  color: #0f5132;
-}
-
-.decision-timer.warning .roll-timer-fill { background: #e03131; }
-.decision-timer.warning .decision-timer-text { color: #c92a2a; }
-
-.decision-cash {
-  margin: 4px 0;
-  font-weight: 600;
-}
-
-.decision-buttons {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-}
-
-.decision-btn {
-  padding: 10px 6px;
-  font-family: inherit;
-  font-size: 1rem;
-  font-weight: 700;
-  color: #fff;
-  background: #198754;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.decision-btn.auction { background: #f08c00; }
-.decision-btn.bid     { background: #1971c2; }
-.decision-btn.pass    { background: #868e96; }
-
-.decision-btn:disabled {
-  background: #ced4da;
-  color: #6c757d;
-  cursor: not-allowed;
-}
-
-/* ---------- Pieces on the board ---------- */
-
-/* Pieces on the same square sit side by side (wrapping into rows),
-   so they never fully cover each other. */
-.square-pieces {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-content: center;
-  justify-content: center;
-  gap: 0.2cqw;
-  pointer-events: none; /* clicks still open the square's detail card */
-}
-
-.piece-marker {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 3.4cqw;
-  height: 3.4cqw;
-  font-size: 2.1cqw;
-  line-height: 1;
-  background: #fff;
-  border: 0.45cqw solid #333; /* replaced by the player's color */
-  border-radius: 50%;
-  box-shadow: 0 0.2cqw 0.5cqw rgba(0, 0, 0, 0.4);
-}
-
-/* ---------- Detail card (dialog) ---------- */
+/* =========================================================
+   SQUARE DETAIL CARD (dialog)
+   ========================================================= */
 
 .detail-dialog {
   width: min(92vw, 340px);
   padding: 0;
-  border: 2px solid #1d1d1d;
-  border-radius: 10px;
   font-family: inherit;
-  background: #fffdf2;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
 }
 
 .detail-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .detail-header {
-  padding: 12px 16px;
+  padding: var(--space-2);
   text-align: center;
-  border-bottom: 2px solid #1d1d1d;
+  background: var(--color-surface-muted);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .detail-header h2 {
   margin: 0;
-  font-size: 1.4rem;
+  font-size: var(--fs-lg);
+  font-weight: 600;
 }
 
 .detail-header .detail-group {
-  font-size: 0.9rem;
+  font-size: var(--fs-sm);
 }
 
-/* Light text on dark color strips, dark text on light ones */
+/* White text on dark group colors, dark text on light ones */
 .detail-header.dark-bg { color: #fff; }
 
 .detail-icon {
   display: block;
-  font-size: 2rem;
+  width: 32px;
+  height: 32px;
+  margin: 0 auto var(--space-1);
+  color: var(--color-text-muted);
 }
 
 .detail-body {
-  padding: 12px 16px;
+  padding: var(--space-2);
 }
 
 .detail-body p {
-  margin: 6px 0;
+  margin: var(--space-1) 0;
 }
 
 .rent-table {
   width: 100%;
+  margin: var(--space-1) 0;
   border-collapse: collapse;
-  margin: 8px 0;
+  font-size: var(--fs-sm);
 }
 
 .rent-table td {
-  padding: 3px 0;
-  border-bottom: 1px dotted #bbb;
+  padding: var(--space-half) 0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .rent-table td:last-child {
@@ -671,88 +611,95 @@ body {
 }
 
 .detail-note {
-  margin-top: 10px;
-  padding: 8px;
-  background: #eef6ee;
-  border-radius: 6px;
-  font-size: 0.95rem;
+  margin-top: var(--space-1);
+  padding: var(--space-1);
+  font-size: var(--fs-sm);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-md);
+}
+
+.owner-dot {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: var(--space-half);
+  border-radius: 50%;
+  vertical-align: 0;
 }
 
 .detail-close {
   display: block;
-  width: calc(100% - 32px);
-  margin: 0 16px 16px;
+  width: calc(100% - 2 * var(--space-2));
+  margin: 0 var(--space-2) var(--space-2);
   padding: 10px;
   font-family: inherit;
-  font-size: 1rem;
+  font-size: var(--fs-md);
   font-weight: 600;
-  color: #fff;
-  background: #198754;
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
 
-/* ---------- Side panel: players ---------- */
+/* =========================================================
+   RIGHT PANEL: players and event log
+   ========================================================= */
 
 .panel-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-1);
 }
 
 .panel-header h2,
-.log-title {
+.log-title,
+.my-panel-title {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: var(--fs-md);
+  font-weight: 600;
 }
 
 .panel-room {
-  font-size: 0.9rem;
-  color: #555;
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
 }
 
 .panel-room strong {
   font-family: monospace, sans-serif;
   letter-spacing: 0.1em;
-  color: #1d1d1d;
+  color: var(--color-text);
 }
 
 .connection-banner {
-  margin: 8px 0 0;
-  padding: 6px 8px;
-  background: #ffe3e3;
-  color: #b02a37;
-  border-radius: 6px;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  font-size: var(--fs-sm);
   font-weight: 600;
-  font-size: 0.95rem;
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-radius: var(--radius-md);
 }
 
 .game-players {
   list-style: none;
-  margin: 8px 0 0;
+  margin: var(--space-1) 0 0;
   padding: 0;
 }
 
 .game-player {
-  margin-top: 6px;
-  padding: 8px 10px;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-left: 6px solid var(--player-color, #999);
-  border-radius: 6px;
+  margin-top: var(--space-1);
+  padding: var(--space-1) 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
-.game-player.me {
-  background: #fff8db;
-}
-
-/* Current player: thick outline in their color */
+/* Current player: subtle accent outline */
 .game-player.current {
-  border-color: var(--player-color, #333);
-  border-width: 3px 3px 3px 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
 }
 
 .game-player.offline {
@@ -762,11 +709,11 @@ body {
 .game-player-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-1);
 }
 
-.game-player-piece {
-  font-size: 1.6rem;
+.game-player-token {
+  font-size: 1.15rem;
 }
 
 .game-player-info {
@@ -774,6 +721,7 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .game-player-name {
@@ -784,86 +732,111 @@ body {
 .game-player-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-half);
 }
 
 .game-player-money {
-  font-weight: 700;
-  font-size: 1.1rem;
-  color: #0f5132;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* TEMP until Step 9: debt is possible and shown in red */
 .game-player-money.negative {
-  color: #e03131;
+  color: var(--color-danger);
 }
 
-/* Owned squares, as small chips grouped by color group */
-.prop-groups {
+/* Other players: "3টি সম্পত্তি" toggle + compact name chips */
+.props-toggle {
+  margin: var(--space-1) 0 0;
+  padding: 2px 10px;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.props-toggle:hover,
+.props-toggle[aria-expanded="true"] {
+  background: var(--color-accent-soft);
+}
+
+.props-none {
+  display: inline-block;
+  margin-top: var(--space-half);
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.mini-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-top: 6px;
+  gap: var(--space-half);
+  margin-top: var(--space-1);
 }
 
-.prop-group {
+.mini-chip {
   display: inline-flex;
-  flex-wrap: wrap;
-  gap: 2px;
-}
-
-.prop-chip {
+  align-items: center;
+  gap: 3px;
+  margin: 0;
   padding: 0 6px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  line-height: 1.6;
-  color: #1d1d1d;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--color-text);
   background: var(--chip-color);
-  border-radius: 4px;
+  border: none;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
+  cursor: pointer;
 }
 
-.prop-chip.dark {
+.mini-chip.dark {
   color: #fff;
 }
 
-.prop-chip.mortgaged {
-  opacity: 0.45;
+.mini-chip.mortgaged {
+  opacity: 0.4;
   text-decoration: line-through;
 }
 
-.badge {
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  background: #ddd;
+.chip-icon {
+  width: 1.1em;
+  height: 1.1em;
 }
 
-.badge-turn { background: #198754; color: #fff; }
-.badge-host { background: #ffd43b; }
-.badge-me { background: #c3fae8; }
-.badge-jail { background: #495057; color: #fff; }
-.badge-offline { background: #ffc9c9; }
-
-/* ---------- Side panel: event log ---------- */
+/* ---------- Event log ---------- */
 
 .log-title {
-  margin-top: 16px;
+  margin-top: var(--space-2);
 }
 
 .event-log {
   list-style: none;
-  margin: 8px 0 0;
+  margin: var(--space-1) 0 0;
   padding: 0;
   max-height: 320px;
   overflow-y: auto;
-  font-size: 0.92rem;
+  font-size: var(--fs-sm);
+}
+
+/* Medium/wide screens: the log takes the space left under the players */
+@media (min-width: 900px) {
+  .side-panel .event-log {
+    flex: 1 1 auto;
+    min-height: 120px;
+    max-height: none;
+  }
 }
 
 .event-log li {
-  padding: 4px 2px;
-  border-bottom: 1px dotted #ccc;
+  padding: var(--space-half) 0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .event-log li:first-child {
@@ -871,32 +844,307 @@ body {
 }
 
 .log-time {
-  color: #888;
-  font-size: 0.8rem;
   font-family: monospace, sans-serif;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
 }
 
-/* ---------- Full-page message (loading, not a member, ...) ---------- */
+/* =========================================================
+   TITLE-DEED CARDS (left panel "আমার সম্পত্তি")
+   Grouped by color group (.deed-group); groups wrap in rows.
+   ========================================================= */
+
+.my-panel-title {
+  margin-bottom: 12px;
+}
+
+.deeds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) 12px; /* bigger gap between groups than inside one */
+}
+
+.deed-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-half);
+}
+
+.deed {
+  display: flex;
+  flex-direction: column;
+  width: 58px;
+  min-height: 52px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: inherit;
+  color: var(--color-text);
+  text-align: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.deed:hover,
+.deed:focus-visible {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+/* Flat color strip (properties) or a small icon row (railroads/utilities) */
+.deed-head {
+  flex: 0 0 auto;
+  height: 8px;
+}
+
+.deed-head-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: auto;
+  padding: 3px 0 0;
+  color: var(--color-text-muted);
+}
+
+.deed-head-icon .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.deed-name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 3px 0;
+  font-size: 0.66rem;
+  font-weight: 500;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.deed-rent {
+  padding: 0 2px 3px;
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* Mortgaged (Step 7): dimmed card */
+.deed.mortgaged {
+  opacity: 0.4;
+}
+
+/* Larger cards in the "আমার সম্পত্তি" panel */
+.deeds-large .deed {
+  width: 80px;
+  min-height: 72px;
+}
+
+.deeds-large .deed-head { height: 10px; }
+.deeds-large .deed-head-icon { height: auto; padding-top: 5px; }
+.deeds-large .deed-head-icon .icon { width: 18px; height: 18px; }
+.deeds-large .deed-name { font-size: 0.82rem; }
+.deeds-large .deed-rent { font-size: 0.8rem; }
+
+/* Phones: compact cards that wrap */
+@media (max-width: 899px) {
+  .deeds-large .deed {
+    width: 66px;
+    min-height: 60px;
+  }
+  .deeds-large .deed-name { font-size: 0.72rem; }
+  .deeds-large .deed-rent { font-size: 0.72rem; }
+}
+
+.deeds-empty {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+}
+
+/* =========================================================
+   BUY / OWNER-AUCTION / AUCTION PANEL
+   Fixed card, not blocking the page. Phones: bottom sheet.
+   ========================================================= */
+
+.decision-panel {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-2);
+  z-index: 20;
+  width: min(100vw - 2 * var(--space-1), 400px);
+  max-height: calc(100dvh - 2 * var(--space-2));
+  overflow-y: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-50%);
+  animation: panel-in 0.2s ease-out;
+}
+
+@keyframes panel-in {
+  from { transform: translate(-50%, 16px); opacity: 0; }
+  to   { transform: translate(-50%, 0); opacity: 1; }
+}
+
+/* Wide screens: in the middle of the screen, over the board */
+@media (min-width: 900px) {
+  .decision-panel {
+    top: 50%;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    animation: none;
+  }
+}
+
+/* Flat strip in the group color (grey for railroads/utilities) */
+.decision-strip {
+  height: 8px;
+}
+
+.decision-body {
+  padding: var(--space-2);
+  text-align: center;
+}
+
+.decision-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.title-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--color-text-muted);
+}
+
+.decision-subtitle {
+  margin: var(--space-half) 0 var(--space-1);
+  color: var(--color-text-muted);
+}
+
+.decision-info p {
+  margin: 2px 0;
+}
+
+.decision-rent {
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+}
+
+.decision-note {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-danger);
+}
+
+.decision-note.good {
+  color: var(--color-accent);
+}
+
+.decision-timer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 12px 0 var(--space-1);
+}
+
+.decision-timer .roll-timer-bar {
+  height: 6px;
+}
+
+.decision-timer-text {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.decision-timer.warning .roll-timer-fill { background: var(--color-danger); }
+.decision-timer.warning .decision-timer-text { color: var(--color-danger); }
+
+.decision-cash {
+  margin: var(--space-1) 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.decision-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-1);
+}
+
+/* Flat buttons: primary = accent green, secondary = outline */
+.decision-btn {
+  padding: 10px 6px;
+  font-family: inherit;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.decision-btn.primary {
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+}
+
+.decision-btn.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.decision-btn.secondary {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.decision-btn.secondary:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+}
+
+.decision-btn:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-color: var(--color-border);
+  cursor: not-allowed;
+}
+
+/* =========================================================
+   FULL-PAGE MESSAGE (loading, not a member of this room, ...)
+   ========================================================= */
 
 .game-message {
   max-width: 420px;
-  padding: 24px;
+  padding: var(--space-3);
   text-align: center;
-  background: #fffdf5;
-  border-radius: 12px;
-  font-size: 1.1rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
 }
 
 .game-message p {
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-2);
 }
 
 .game-message a {
   display: inline-block;
   padding: 10px 20px;
-  color: #fff;
-  background: #198754;
-  border-radius: 8px;
-  text-decoration: none;
   font-weight: 600;
+  color: var(--color-text-on-accent);
+  text-decoration: none;
+  background: var(--color-accent);
+  border-radius: var(--radius-md);
 }

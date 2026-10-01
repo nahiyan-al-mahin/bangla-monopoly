@@ -12,6 +12,7 @@ const gameRoomCode = document.getElementById('gameRoomCode');
 const gamePlayers = document.getElementById('gamePlayers');
 const connectionBanner = document.getElementById('connectionBanner');
 const eventLog = document.getElementById('eventLog');
+const myDeeds = document.getElementById('myDeeds');
 
 const turnInfo = document.getElementById('turnInfo');
 const die1 = document.getElementById('die1');
@@ -124,32 +125,54 @@ function shakeDice() {
 
 // ---------- Player list ----------
 
-// Small colored chips of a player's squares, grouped by color group
-// (in board order; railroads and utilities form their own groups).
-function propertyChipsHtml(playerId, properties) {
-  const groups = []; // [{ key, squares: [] }] in board order
+// Rent text on a title-deed card: "৳76", or "পাশা × 4" for utilities.
+// rentNow comes from the server (it knows full sets, railroad counts, ...).
+function deedRentText(owned) {
+  const rent = owned.rentNow;
+  if (!rent) return '';
+  return rent.multiplier ? `পাশা × ${rent.multiplier}` : money(rent.amount);
+}
+
+// Mini title-deed cards for one player's squares, grouped by color group
+// in board order (railroads and utilities form their own groups).
+// Each card is a button; clicking it opens the square's detail card.
+function deedsHtml(playerId, properties) {
+  const groups = []; // [{ key, cards: [] }] in board order
   SQUARES.forEach((square) => {
     const owned = properties[square.index];
     if (!owned || owned.ownerId !== playerId) return;
     const key = square.group || square.type;
     let group = groups.find((g) => g.key === key);
     if (!group) {
-      group = { key, squares: [] };
+      group = { key, cards: [] };
       groups.push(group);
     }
-    group.squares.push({ square, mortgaged: owned.mortgaged });
+    group.cards.push({ square, owned });
   });
 
   if (groups.length === 0) return '';
 
-  return '<div class="prop-groups">' + groups.map((group) =>
-    '<span class="prop-group">' + group.squares.map(({ square, mortgaged }) => {
-      const dark = !square.group || DARK_GROUPS.includes(square.group);
-      return '<span class="prop-chip' + (dark ? ' dark' : '') + (mortgaged ? ' mortgaged' : '') + '"' +
-        ' style="--chip-color:' + squareColor(square) + '">' +
-        (square.icon ? square.icon + ' ' : '') + escapeHtml(square.name) + '</span>';
-    }).join('') + '</span>'
-  ).join('') + '</div>';
+  return groups.map((group) =>
+    '<div class="deed-group">' + group.cards.map(({ square, owned }) => {
+      // Properties: header strip in the group color.
+      // Railroads/utilities: plain header with their icon instead.
+      const head = square.group
+        ? '<span class="deed-head" style="background:' + GROUPS[square.group].color + '"></span>'
+        : '<span class="deed-head deed-head-icon">' + squareIconSvg(square) + '</span>';
+      return '<button type="button" class="deed' + (owned.mortgaged ? ' mortgaged' : '') + '"' +
+          ' data-index="' + square.index + '" title="' + escapeHtml(square.name) + '">' +
+        head +
+        '<span class="deed-name">' + escapeHtml(square.name) + '</span>' +
+        '<span class="deed-rent">' + escapeHtml(deedRentText(owned)) + '</span>' +
+      '</button>';
+    }).join('') + '</div>'
+  ).join('');
+}
+
+// "আমার সম্পত্তি" panel (left of the board on wide screens).
+function renderMyDeeds(state) {
+  const html = deedsHtml(myPlayerId, state.game.properties);
+  myDeeds.innerHTML = html || '<p class="deeds-empty">এখনো কোনো সম্পত্তি নেই।</p>';
 }
 
 function renderPlayers(state) {
@@ -179,17 +202,49 @@ function renderPlayers(state) {
 
     li.innerHTML =
       '<div class="game-player-row">' +
-        '<span class="game-player-piece">' + (piece ? piece.emoji : '❔') + '</span>' +
+        tokenHtml(piece, color ? color.hex : null, player.name, 'game-player-token') +
         '<span class="game-player-info">' +
           '<span class="game-player-name">' + escapeHtml(player.name) + '</span>' +
           '<span class="game-player-badges">' + badges + '</span>' +
         '</span>' +
         '<span class="' + moneyClass + '">' + money(player.money) + '</span>' +
       '</div>' +
-      propertyChipsHtml(player.id, state.game.properties);
+      // My own properties are in the "আমার সম্পত্তি" panel, not here.
+      (player.id === myPlayerId ? '' : otherPlayerPropertiesHtml(player.id, state.game.properties));
 
     gamePlayers.appendChild(li);
   });
+}
+
+// Other players: "3টি সম্পত্তি" badge. Tapping it shows/hides a compact
+// list of name chips in their group colors (collapsed by default).
+// Which lists are open is remembered across redraws.
+const expandedPlayerIds = new Set();
+
+function otherPlayerPropertiesHtml(playerId, properties) {
+  const owned = SQUARES.filter((square) =>
+    properties[square.index] && properties[square.index].ownerId === playerId);
+  if (owned.length === 0) {
+    return '<span class="props-none">কোনো সম্পত্তি নেই</span>';
+  }
+
+  const open = expandedPlayerIds.has(playerId);
+  let html =
+    '<button type="button" class="props-toggle" data-player-id="' + playerId + '" aria-expanded="' + open + '">' +
+      `${owned.length}টি সম্পত্তি ` + (open ? '▴' : '▾') +
+    '</button>';
+
+  if (open) {
+    html += '<div class="mini-chips">' + owned.map((square) => {
+      const dark = !square.group || DARK_GROUPS.includes(square.group);
+      const mortgaged = properties[square.index].mortgaged;
+      return '<button type="button" class="mini-chip' + (dark ? ' dark' : '') + (mortgaged ? ' mortgaged' : '') + '"' +
+          ' data-index="' + square.index + '" style="--chip-color:' + squareColor(square) + '">' +
+        squareIconSvg(square, 'chip-icon') + escapeHtml(square.name) +
+      '</button>';
+    }).join('') + '</div>';
+  }
+  return html;
 }
 
 // ---------- Board center and controls ----------
@@ -204,7 +259,8 @@ function renderTurnInfo(state) {
   turnInfo.style.setProperty('--player-color', color ? color.hex : '#333');
   turnInfo.innerHTML =
     '<span class="turn-label">' + (isMe ? 'আপনার পালা!' : 'এখন পালা') + '</span>' +
-    '<span class="turn-name">' + (piece ? piece.emoji + ' ' : '') + escapeHtml(current.name) + '</span>';
+    '<span class="turn-name">' + tokenHtml(piece, color ? color.hex : null, current.name, 'turn-token') +
+      escapeHtml(current.name) + '</span>';
 
   const dice = state.game.dice || [null, null];
   renderDie(die1, dice[0]);
@@ -224,6 +280,8 @@ function renderControls(state) {
   const current = playerById(game.currentPlayerId);
   if (game.phase === 'buy') {
     turnHint.textContent = isMyTurn ? 'কিনবেন কি না, সিদ্ধান্ত নিন।' : `${current.name} ভাবছেন কিনবেন কিনা…`;
+  } else if (game.phase === 'ownerAuction') {
+    turnHint.textContent = isMyTurn ? 'নিলামে তুলবেন কি না, সিদ্ধান্ত নিন।' : `${current.name} ভাবছেন নিলামে তুলবেন কিনা…`;
   } else if (game.phase === 'auction') {
     turnHint.textContent = 'নিলাম চলছে!';
   } else if (game.phase === 'moving') {
@@ -237,7 +295,15 @@ function renderControls(state) {
   }
 }
 
-// ---------- Buy / auction panel ----------
+// ---------- Buy / owner-auction / auction panel ----------
+
+// Decision types that use the panel, with their countdown length.
+function decisionSeconds(type) {
+  if (type === 'buy') return setup.buyDecisionSeconds;
+  if (type === 'ownerAuction') return setup.ownerAuctionDecisionSeconds;
+  if (type === 'auction') return setup.auctionSeconds;
+  return null; // not a panel decision (Step 6+: jail options, ...)
+}
 
 // One-line rent summary for the decision panel.
 function rentSummary(square) {
@@ -263,7 +329,7 @@ function makeButton(label, className, disabled, onClick) {
 
 function renderDecision(state) {
   const decision = state.game.pendingDecision;
-  if (!decision || (decision.type !== 'buy' && decision.type !== 'auction')) {
+  if (!decision || decisionSeconds(decision.type) === null) {
     decisionPanel.hidden = true;
     decisionError.textContent = '';
     return;
@@ -281,48 +347,83 @@ function renderDecision(state) {
     const isMe = decider.id === myPlayerId;
     const canAfford = me.money >= square.price;
 
-    decisionTitle.textContent = (square.icon ? square.icon + ' ' : '') + square.name;
+    decisionTitle.innerHTML = squareIconSvg(square, 'title-icon') + escapeHtml(square.name);
     decisionSubtitle.textContent = isMe ? 'আপনি কি এটি কিনবেন?' : `${decider.name} ভাবছেন কিনবেন কিনা…`;
     decisionInfo.innerHTML =
       '<p class="decision-price">দাম: <strong>' + money(square.price) + '</strong></p>' +
       '<p class="decision-rent">' + escapeHtml(rentSummary(square)) + '</p>' +
-      (isMe && !canAfford ? '<p class="decision-note">যথেষ্ট টাকা নেই — শুধু নিলাম সম্ভব।</p>' : '');
+      (isMe && !canAfford ? '<p class="decision-note">যথেষ্ট টাকা নেই।</p>' : '');
     decisionMyCash.hidden = !isMe;
 
     if (isMe) {
-      decisionButtons.appendChild(makeButton('কিনুন (' + money(square.price) + ')', 'decision-btn buy',
+      decisionButtons.appendChild(makeButton('কিনুন (' + money(square.price) + ')', 'decision-btn primary',
         !canAfford || waitingForServer, () => sendDecision('game:buy', {})));
-      decisionButtons.appendChild(makeButton('নিলাম', 'decision-btn auction',
+      decisionButtons.appendChild(makeButton('কিনব না', 'decision-btn secondary',
         waitingForServer, () => sendDecision('game:decline', {})));
     }
     return;
   }
 
-  // Auction: everyone sees the same panel with their own buttons.
+  if (decision.type === 'ownerAuction') {
+    const owner = playerById(decision.playerId);
+    const isMe = owner.id === myPlayerId;
+
+    decisionTitle.innerHTML = squareIconSvg(square, 'title-icon') + escapeHtml(square.name);
+    decisionSubtitle.textContent = isMe
+      ? 'নিজের সম্পত্তিতে থামলেন। নিলামে তুলবেন?'
+      : `${owner.name} ভাবছেন নিলামে তুলবেন কিনা…`;
+    decisionInfo.innerHTML =
+      '<p class="decision-price">তালিকা মূল্য: ' + money(square.price) + '</p>' +
+      '<p class="decision-rent">সর্বনিম্ন দর: <strong>' + money(decision.minBid) + '</strong>' +
+      ' · অন্যরা দর দেবেন, টাকা পাবেন আপনি</p>';
+    decisionMyCash.hidden = true;
+
+    if (isMe) {
+      decisionButtons.appendChild(makeButton('নিলামে তুলুন', 'decision-btn primary',
+        waitingForServer, () => sendDecision('game:ownerAuction', {})));
+      decisionButtons.appendChild(makeButton('রেখে দিন', 'decision-btn secondary',
+        waitingForServer, () => sendDecision('game:ownerKeep', {})));
+    }
+    return;
+  }
+
+  // Auction: everyone sees the same panel; bidders get buttons.
+  const seller = decision.sellerId ? playerById(decision.sellerId) : null;
+  const iAmSeller = decision.sellerId === myPlayerId;
   const highest = decision.highestBidderId ? playerById(decision.highestBidderId) : null;
   const iPassed = decision.passedIds.includes(myPlayerId);
   const iAmHighest = decision.highestBidderId === myPlayerId;
   const passedNames = decision.passedIds.map((id) => playerById(id).name);
 
-  decisionTitle.textContent = 'নিলাম: ' + (square.icon ? square.icon + ' ' : '') + square.name;
+  decisionTitle.innerHTML = 'নিলাম: ' + squareIconSvg(square, 'title-icon') + escapeHtml(square.name);
   decisionSubtitle.innerHTML = highest
     ? 'সর্বোচ্চ দর: <strong>' + money(decision.highestBid) + '</strong> — ' + escapeHtml(highest.name)
-    : `এখনো কোনো দর নেই (সর্বনিম্ন ${money(setup.startingBid)})`;
+    : `এখনো কোনো দর নেই (সর্বনিম্ন ${money(decision.minBid)})`;
   decisionInfo.innerHTML =
-    '<p class="decision-price">তালিকা মূল্য: ' + money(square.price) + '</p>' +
+    '<p class="decision-price">বিক্রেতা: ' + (seller ? escapeHtml(seller.name) : 'ব্যাংক') +
+      ' · তালিকা মূল্য: ' + money(square.price) + '</p>' +
     '<p class="decision-rent">' + escapeHtml(rentSummary(square)) + '</p>' +
     (passedNames.length ? '<p class="decision-note">পাস করেছেন: ' + escapeHtml(passedNames.join(', ')) + '</p>' : '') +
+    (iAmSeller ? '<p class="decision-note good">আপনার সম্পত্তি নিলামে — অন্যরা দর দিচ্ছেন।</p>' : '') +
     (iPassed ? '<p class="decision-note">আপনি পাস করেছেন।</p>' : '') +
     (iAmHighest ? '<p class="decision-note good">আপনিই সর্বোচ্চ দরদাতা!</p>' : '');
-  decisionMyCash.hidden = false;
+  decisionMyCash.hidden = iAmSeller;
 
+  if (iAmSeller) return; // the seller only watches
+
+  // Bid buttons: highest bid + increment. Before the first bid they start
+  // at the minimum bid (e.g. min ৳80 -> ৳80 / ৳120 / ৳170).
+  const base = decision.highestBidderId
+    ? decision.highestBid
+    : decision.minBid - setup.bidIncrements[0];
   setup.bidIncrements.forEach((increment) => {
-    const amount = decision.highestBid + increment;
+    const amount = base + increment;
     const disabled = iPassed || iAmHighest || amount > me.money || waitingForServer;
-    decisionButtons.appendChild(makeButton(`+${money(increment)} (${money(amount)})`, 'decision-btn bid',
+    const label = decision.highestBidderId ? `+${money(increment)} (${money(amount)})` : money(amount);
+    decisionButtons.appendChild(makeButton(label, 'decision-btn primary',
       disabled, () => sendDecision('auction:bid', { amount })));
   });
-  decisionButtons.appendChild(makeButton('পাস', 'decision-btn pass',
+  decisionButtons.appendChild(makeButton('পাস', 'decision-btn secondary',
     iPassed || iAmHighest || waitingForServer, () => sendDecision('auction:pass', {})));
 }
 
@@ -335,7 +436,7 @@ function showCountdown(fillEl, textEl, containerEl, deadline, totalSeconds, warn
   const leftMs = Math.max(0, deadline - (Date.now() + clockOffsetMs));
   const leftSeconds = Math.ceil(leftMs / 1000);
   fillEl.style.width = Math.min(100, (leftMs / (totalSeconds * 1000)) * 100) + '%';
-  textEl.textContent = `⏱ ${leftSeconds} সেকেন্ড`;
+  textEl.textContent = `${leftSeconds} সেকেন্ড`;
   containerEl.classList.toggle('warning', leftSeconds <= warningSeconds);
   return true;
 }
@@ -350,10 +451,10 @@ function updateCountdown() {
       setup.rollTimeoutSeconds, ROLL_WARNING_SECONDS);
   rollTimer.hidden = !rolling;
 
-  // Buy / auction timer (decision panel)
+  // Buy / owner-auction / auction timer (decision panel)
   const decision = game.pendingDecision;
-  if (decision && (decision.type === 'buy' || decision.type === 'auction')) {
-    const total = decision.type === 'buy' ? setup.buyDecisionSeconds : setup.auctionSeconds;
+  const total = decision ? decisionSeconds(decision.type) : null;
+  if (total !== null) {
     showCountdown(decisionTimerFill, decisionTimerText, decisionTimer, decision.deadline,
       total, DECISION_WARNING_SECONDS);
   }
@@ -396,6 +497,7 @@ function syncPositions() {
 function renderAll() {
   const state = latestState;
   gameRoomCode.textContent = state.code;
+  renderMyDeeds(state);
   renderPlayers(state);
   renderTurnInfo(state);
   renderControls(state);
@@ -492,6 +594,25 @@ async function sendRequest(eventName, extraData, errorEl) {
 function sendDecision(eventName, extraData) {
   sendRequest(eventName, extraData, decisionError);
 }
+
+gameLayout.addEventListener('click', (event) => {
+  // Clicking a title-deed card or a property chip opens the same detail
+  // card as clicking the board square.
+  const card = event.target.closest('.deed, .mini-chip');
+  if (card) {
+    showDetail(Number(card.dataset.index));
+    return;
+  }
+
+  // "3টি সম্পত্তি" badge: show/hide that player's property list.
+  const toggle = event.target.closest('.props-toggle');
+  if (toggle) {
+    const id = toggle.dataset.playerId;
+    if (expandedPlayerIds.has(id)) expandedPlayerIds.delete(id);
+    else expandedPlayerIds.add(id);
+    renderPlayers(latestState);
+  }
+});
 
 rollBtn.addEventListener('click', () => {
   const dice = chosenDebugDice();

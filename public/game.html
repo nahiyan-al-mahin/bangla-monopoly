@@ -6,8 +6,8 @@
   <title>বাংলা মনোপলি — খেলা</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/theme.css">
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="css/board.css">
 </head>
 <body>
@@ -50,14 +50,21 @@
         </div>
 
         <div class="control-buttons">
-          <button id="rollBtn" type="button" class="control-btn" hidden>🎲 পাশা ফেলো</button>
+          <button id="rollBtn" type="button" class="control-btn" hidden>পাশা ফেলো</button>
         </div>
         <p id="actionError" class="action-error" role="alert"></p>
       </div>
     </div>
 
-    <!-- Side panel: players and event log -->
-    <aside class="side-panel">
+    <!-- My own title-deed cards. Wide screens: left of the board.
+         Narrower screens: below the board (see the layout notes in board.css). -->
+    <section class="panel my-panel">
+      <h2 class="my-panel-title">আমার সম্পত্তি</h2>
+      <div id="myDeeds" class="deeds deeds-large"></div>
+    </section>
+
+    <!-- Right panel: players and event log -->
+    <aside class="panel side-panel">
       <div class="panel-header">
         <h2>খেলোয়াড়</h2>
         <span class="panel-room">রুম: <strong id="gameRoomCode"></strong></span>
@@ -98,6 +105,7 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="js/common.js"></script>
+  <script src="js/icons.js"></script>
   <script src="js/board.js"></script>
   <script src="js/game.js"></script>
 </body>

@@ -59,9 +59,9 @@ app.get('/api/setup', (req, res) => {
     debugDice: config.debugDice, // DEBUG_DICE=1: show the dice picker
     rollTimeoutSeconds: config.ROLL_TIMEOUT_SECONDS,
     buyDecisionSeconds: config.BUY_DECISION_SECONDS,
+    ownerAuctionDecisionSeconds: config.OWNER_AUCTION_DECISION_SECONDS,
     auctionSeconds: config.AUCTION_SECONDS,
     bidIncrements: config.auction.bidIncrements,
-    startingBid: config.auction.startingBid,
     moveStepMs: config.moveStepMs,          // piece animation speed
     moveJumpPauseMs: config.moveJumpPauseMs // pause before jumping to jail
   });
@@ -208,7 +208,21 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
   });
 
-  // Auction (any player who has not passed)
+  // Owner auction decision (house rule C): the current player landed on
+  // their own square and may put it up for auction or keep it.
+  handle(socket, 'game:ownerAuction', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.startOwnerAuction(room, player);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'game:ownerKeep', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.keepProperty(room, player);
+    broadcastRoom(room);
+  });
+
+  // Auction (any player except the seller who has not passed)
   handle(socket, 'auction:bid', (request) => {
     const { room, player } = findPlayer(request);
     engine.placeBid(room, player, request.amount);

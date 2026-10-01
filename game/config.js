@@ -45,15 +45,20 @@ const config = {
   // --- Bankruptcy ---
   mortgageInterestRate: 0.1, // 10% paid when receiving a mortgaged property
 
-  // --- Buying / auction ---
-  // Time to decide "buy or auction" after landing on an unowned square.
-  // When it runs out, the property goes to auction.
+  // --- Buying / auction (house rule C, see CLAUDE.md) ---
+  // Time to decide "buy or not" after landing on an unowned square.
+  // Not buying (or timeout): the square stays with the bank. No auction.
   BUY_DECISION_SECONDS: 20,
+  // Landing on your own square: time to choose "auction it" or "keep it".
+  // Timeout = keep.
+  OWNER_AUCTION_DECISION_SECONDS: 10,
+  // Owner auction minimum first bid = this x list price, rounded up to ৳10.
+  OWNER_AUCTION_MIN_RATIO: 0.5,
   // Auction countdown. Starts when the auction opens and restarts after
   // every valid bid. When it runs out, the highest bidder wins.
   AUCTION_SECONDS: 10,
   auction: {
-    startingBid: 10,              // lowest allowed first bid
+    startingBid: 10,              // minimum first bid for BANK auctions (Step 9)
     bidIncrements: [10, 50, 100]  // buttons: current highest bid + these
   },
 

@@ -50,7 +50,7 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 4. Bankruptcy: creditor receiving mortgaged property pays 10% interest immediately. Bank as creditor: buildings return to bank, properties auctioned unmortgaged.
 
-5. Auction: open bidding (+৳10/+৳50/+৳100), 10-second countdown reset on each bid, players may pass, the decliner may bid, no bids -> stays with bank.
+5. Buying and auctions (house rule "C", overrides SPEC.md §8 "else start an AUCTION"): declining to buy ("কিনব না") or letting the buy timer (BUY_DECISION_SECONDS) run out means NO auction; the property stays unowned and the turn continues. Owner auction: a player who lands on their own property/railroad/utility may choose "নিলামে তুলুন" or "রেখে দিন" within OWNER_AUCTION_DECISION_SECONDS (10s, timeout = keep). Not allowed if that property is mortgaged or any property in its color group has houses/hotel (server rejects it too). Only the other players bid; the owner cannot. Minimum first bid = OWNER_AUCTION_MIN_RATIO (0.5) x list price, rounded up to the nearest ৳10. Bidding: +৳10/+৳50/+৳100 above the highest bid, "পাস" (a player who passed cannot bid again), AUCTION_SECONDS (10s) countdown reset on each bid, early end when all other bidders have passed, server checks cash. The winner pays the OWNER and gets the property; no bids -> owner keeps it. The auction engine stays reusable: Step 9 bankruptcy uses bank auctions (seller = bank, everyone can bid, min ৳10).
 
 6. Housing shortage: first come, first served (no shortage auction).
 

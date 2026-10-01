@@ -12,14 +12,15 @@
 //      |  onArrive(): resolve the landing square
 //      |    - rent / tax are paid automatically
 //      |    - unowned property -> pending decision:
-//      |
-//      |      'buy'      -- current player: "buy" or "auction"
-//      |         |          (BUY_DECISION_SECONDS, timeout = auction)
-//      |         v
-//      |      'auction'  -- everyone bids or passes
-//      |                    (AUCTION_SECONDS, restarted after each bid)
-//      |         |
-//      |      finishDecision()
+//      |        'buy'  -- "কিনুন" or "কিনব না" (BUY_DECISION_SECONDS).
+//      |                  Not buying (or timeout): it simply stays unowned.
+//      |    - own property -> pending decision (house rule C):
+//      |        'ownerAuction' -- "নিলামে তুলুন" or "রেখে দিন"
+//      |           |              (OWNER_AUCTION_DECISION_SECONDS, timeout = keep)
+//      |           v
+//      |        'auction' -- the OTHER players bid; the winner pays the owner
+//      |                     (AUCTION_SECONDS, restarted after each bid)
+//      |  finishDecision()
 //      v
 //   short pause (TURN_END_DELAY_MS), then continueTurn():
 //      doubles -> same player, phase 'roll' with a new timer
@@ -55,10 +56,14 @@ const MSG = {
   badDebugDice: 'পরীক্ষার পাশার মান 1 থেকে 6 হতে হবে।',
   notBuyTime: 'এখন কেনার সিদ্ধান্ত নেওয়ার সময় নয়।',
   cannotAfford: 'আপনার কাছে যথেষ্ট টাকা নেই।',
+  notOwnerAuctionTime: 'এখন নিলামে তোলার সিদ্ধান্ত নেওয়ার সময় নয়।',
+  cannotAuctionMortgaged: 'বন্ধক রাখা সম্পত্তি নিলামে তোলা যাবে না।',
+  cannotAuctionBuildings: 'এই রঙের কোনো সম্পত্তিতে বাড়ি/হোটেল থাকলে নিলামে তোলা যাবে না।',
   noAuction: 'এখন কোনো নিলাম চলছে না।',
+  sellerCannotBid: 'নিজের সম্পত্তির নিলামে দর দেওয়া যাবে না।',
   alreadyPassed: 'আপনি এই নিলামে পাস করেছেন, আর দর দিতে পারবেন না।',
   badBid: 'দরটি ঠিক নেই।',
-  bidBelowMin: `সর্বনিম্ন দর ৳${config.auction.startingBid}।`,
+  bidBelowMin: (min) => `সর্বনিম্ন দর ৳${min}।`,
   bidTooLow: 'দর বর্তমান সর্বোচ্চ দরের চেয়ে বেশি হতে হবে।',
   bidTooHigh: 'আপনার কাছে এত টাকা নেই।',
   alreadyHighest: 'আপনিই এখন সর্বোচ্চ দরদাতা।',
@@ -86,7 +91,7 @@ function initGame(room) {
 
   room.game = {
     turnIndex: 0,          // index into room.players (seat order)
-    phase: 'roll',         // 'roll' | 'moving' | 'buy' | 'auction'
+    phase: 'roll',         // 'roll' | 'moving' | 'buy' | 'ownerAuction' | 'auction'
     doublesCount: 0,       // doubles rolled in a row during this turn
     extraRoll: false,      // true after a double: same player rolls again
     dice: null,            // last roll, e.g. [3, 5]
@@ -99,7 +104,9 @@ function initGame(room) {
     properties: {},
     // A decision that must be answered before the turn can go on:
     //   { type: 'buy', playerId, squareIndex, deadline }
-    //   { type: 'auction', squareIndex, highestBid, highestBidderId, passedIds, deadline }
+    //   { type: 'ownerAuction', playerId, squareIndex, minBid, deadline }
+    //   { type: 'auction', squareIndex, sellerId, minBid, highestBid,
+    //     highestBidderId, passedIds, deadline }   (sellerId null = bank)
     // Step 6 adds jail options here.
     pendingDecision: null,
     timer: null,           // the one running timer (setTimeout handle)
@@ -227,6 +234,18 @@ function calculateRent(room, square, owner, diceTotal) {
     return { amount: square.rent.set, detail: 'পুরো রঙের সেট' };
   }
   return { amount: square.rent.base, detail: '' };
+}
+
+// The rent that applies right now if someone lands on this owned square
+// (display only, for the title-deed cards). Utilities depend on the dice,
+// so they return the multiplier instead of an amount.
+function currentRent(room, squareIndex) {
+  const square = SQUARES[squareIndex];
+  const owner = ownerOf(room, squareIndex);
+  if (square.type === 'utility') {
+    return { multiplier: config.utilityMultipliers[countOwned(room, owner, 'utility') - 1] };
+  }
+  return { amount: calculateRent(room, square, owner, 0).amount };
 }
 
 // ---------- Timers ----------
@@ -364,7 +383,7 @@ function onArrive(room) {
   const sentToJail = game.lastMove.jumpTo !== null;
   if (!sentToJail) resolveLanding(room, currentPlayer(room));
 
-  // A pending decision (buy/auction; Step 6: jail options) pauses the turn.
+  // A pending decision (buy / owner auction; Step 6: jail options) pauses the turn.
   // Its handler calls finishDecision() when it is resolved.
   if (game.pendingDecision) return;
 
@@ -388,14 +407,19 @@ function resolveLanding(room, player) {
 
   const owner = ownerOf(room, square.index);
 
-  // Unowned: the player decides to buy or send it to auction.
+  // Unowned: the player decides to buy it or not.
   if (!owner) {
     startBuyDecision(room, player, square);
     return;
   }
 
+  // Own square (house rule C): the owner may put it up for auction.
   if (owner === player) {
-    addLog(room, `${player.name} নিজের সম্পত্তিতে থামলেন।`);
+    if (ownerAuctionProblem(room, square) === null) {
+      startOwnerAuctionDecision(room, player, square);
+    } else {
+      addLog(room, `${player.name} নিজের সম্পত্তিতে থামলেন।`);
+    }
     return;
   }
 
@@ -447,6 +471,8 @@ function advanceTurn(room) {
 }
 
 // ---------- Buying ----------
+// House rule C: not buying does NOT start an auction. The square simply
+// stays with the bank and the turn goes on.
 
 function startBuyDecision(room, player, square) {
   const game = room.game;
@@ -458,10 +484,10 @@ function startBuyDecision(room, player, square) {
     squareIndex: square.index,
     deadline: Date.now() + ms
   };
-  // No answer in time: the property goes to auction.
+  // No answer in time: not bought.
   setGameTimer(room, ms, () => {
-    addLog(room, `সময় শেষ! ${player.name} সিদ্ধান্ত নেননি — ${square.name} নিলামে উঠল।`);
-    startAuction(room, square);
+    addLog(room, `সময় শেষ! ${player.name} সিদ্ধান্ত নেননি — ${square.name} কেনা হলো না।`);
+    finishDecision(room);
   });
 }
 
@@ -483,28 +509,110 @@ function buyProperty(room, player) {
   finishDecision(room);
 }
 
-// "নিলাম": the player does not buy; everyone may bid.
+// "কিনব না": the square stays with the bank.
 function declineProperty(room, player) {
   const square = requireBuyDecision(room, player);
   addLog(room, `${player.name} ${square.name} কিনলেন না।`);
-  startAuction(room, square);
+  finishDecision(room);
 }
 
-// ---------- Auction ----------
-// Open to all players, including the one who declined.
+// ---------- Owner auction (house rule C) ----------
+// A player who lands on their own square may sell it by auction to the
+// other players. The winner pays the owner.
 
-function startAuction(room, square) {
+// Minimum first bid: OWNER_AUCTION_MIN_RATIO x list price, rounded UP to ৳10.
+function ownerAuctionMinBid(square) {
+  return Math.ceil((square.price * config.OWNER_AUCTION_MIN_RATIO) / 10) * 10;
+}
+
+// Returns null if this square may be put up for auction, else the reason.
+// Not allowed: mortgaged, or any square of its color group has buildings.
+function ownerAuctionProblem(room, square) {
+  const state = room.game.properties[square.index];
+  if (state.mortgaged) return MSG.cannotAuctionMortgaged;
+  if (square.group) {
+    const groupHasBuildings = SQUARES.some((s) =>
+      s.group === square.group &&
+      room.game.properties[s.index] &&
+      room.game.properties[s.index].houses > 0);
+    if (groupHasBuildings) return MSG.cannotAuctionBuildings;
+  }
+  return null;
+}
+
+function startOwnerAuctionDecision(room, player, square) {
+  const game = room.game;
+  const ms = config.OWNER_AUCTION_DECISION_SECONDS * 1000;
+  game.phase = 'ownerAuction';
+  game.pendingDecision = {
+    type: 'ownerAuction',
+    playerId: player.id,
+    squareIndex: square.index,
+    minBid: ownerAuctionMinBid(square),
+    deadline: Date.now() + ms
+  };
+  // No answer in time: the owner keeps it.
+  setGameTimer(room, ms, () => {
+    addLog(room, `সময় শেষ — ${player.name} ${square.name} রেখে দিলেন।`);
+    finishDecision(room);
+  });
+}
+
+function requireOwnerAuctionDecision(room, player) {
+  requireTurn(room, player);
+  const decision = room.game.pendingDecision;
+  if (room.game.phase !== 'ownerAuction' || !decision || decision.playerId !== player.id) {
+    fail(MSG.notOwnerAuctionTime);
+  }
+  return decision;
+}
+
+// "নিলামে তুলুন": the other players may bid.
+function startOwnerAuction(room, player) {
+  const decision = requireOwnerAuctionDecision(room, player);
+  const square = SQUARES[decision.squareIndex];
+  // Check again (the server never trusts that the button was allowed).
+  const problem = ownerAuctionProblem(room, square);
+  if (problem) fail(problem);
+
+  addLog(room, `${player.name} ${square.name} নিলামে তুললেন (সর্বনিম্ন দর ৳${decision.minBid})।`);
+  startAuction(room, square.index, { sellerId: player.id, minBid: decision.minBid });
+}
+
+// "রেখে দিন": the owner keeps it.
+function keepProperty(room, player) {
+  const decision = requireOwnerAuctionDecision(room, player);
+  addLog(room, `${player.name} ${SQUARES[decision.squareIndex].name} রেখে দিলেন।`);
+  finishDecision(room);
+}
+
+// ---------- Auction (reusable) ----------
+// One auction engine for every kind of sale:
+//   - owner auction (house rule C): sellerId = owner, minBid from the ratio
+//   - Step 9 bankruptcy: sellerId = null (bank), minBid = config.auction.startingBid
+// The seller cannot bid; everyone else may bid or pass.
+// The winner pays the seller (or the bank) and gets the square.
+
+function startAuction(room, squareIndex, { sellerId = null, minBid = config.auction.startingBid } = {}) {
   const game = room.game;
   game.phase = 'auction';
   game.pendingDecision = {
     type: 'auction',
-    squareIndex: square.index,
+    squareIndex,
+    sellerId,          // null = the bank is selling
+    minBid,            // lowest allowed first bid
     highestBid: 0,
     highestBidderId: null,
     passedIds: [],
-    deadline: null // set by restartAuctionTimer
+    deadline: null     // set by restartAuctionTimer
   };
-  addLog(room, `নিলাম শুরু: ${square.name} (সর্বনিম্ন দর ৳${config.auction.startingBid})`);
+  addLog(room, `নিলাম শুরু: ${SQUARES[squareIndex].name} (সর্বনিম্ন দর ৳${minBid})`);
+
+  // Nobody can bid at all (e.g. no other players): finish at once.
+  if (everyoneElsePassed(room)) {
+    endAuction(room);
+    return;
+  }
   restartAuctionTimer(room);
 }
 
@@ -514,10 +622,17 @@ function restartAuctionTimer(room) {
   setGameTimer(room, ms, () => endAuction(room));
 }
 
+// Players who may bid in this auction: everyone except the seller.
+// (Step 9: bankrupt players will be left out here too.)
+function canBid(auction, player) {
+  return player.id !== auction.sellerId;
+}
+
 function requireAuction(room, player) {
   requirePlaying(room);
   const auction = room.game.pendingDecision;
   if (room.game.phase !== 'auction' || !auction || auction.type !== 'auction') fail(MSG.noAuction);
+  if (!canBid(auction, player)) fail(MSG.sellerCannotBid);
   if (auction.passedIds.includes(player.id)) fail(MSG.alreadyPassed);
   return auction;
 }
@@ -527,7 +642,7 @@ function placeBid(room, player, amount) {
 
   if (!Number.isInteger(amount)) fail(MSG.badBid);
   if (auction.highestBidderId === player.id) fail(MSG.alreadyHighest);
-  if (amount < config.auction.startingBid) fail(MSG.bidBelowMin);
+  if (amount < auction.minBid) fail(MSG.bidBelowMin(auction.minBid));
   if (amount <= auction.highestBid) fail(MSG.bidTooLow);
   if (amount > player.money) fail(MSG.bidTooHigh);
 
@@ -553,26 +668,35 @@ function passAuction(room, player) {
   // Otherwise the countdown keeps running (passing does not restart it).
 }
 
-// True when nobody can still outbid: everyone except the highest bidder
-// (or simply everyone, if there is no bid yet) has passed.
+// True when nobody can still outbid: every bidder except the highest one
+// (or simply every bidder, if there is no bid yet) has passed.
 function everyoneElsePassed(room) {
   const auction = room.game.pendingDecision;
-  return room.players.every((p) =>
-    p.id === auction.highestBidderId || auction.passedIds.includes(p.id));
+  return room.players
+    .filter((p) => canBid(auction, p))
+    .every((p) => p.id === auction.highestBidderId || auction.passedIds.includes(p.id));
 }
 
 function endAuction(room) {
   const auction = room.game.pendingDecision;
   const square = SQUARES[auction.squareIndex];
+  const seller = auction.sellerId ? playerById(room, auction.sellerId) : null;
   const winner = auction.highestBidderId ? playerById(room, auction.highestBidderId) : null;
 
   if (winner) {
-    pay(room, winner, null, auction.highestBid);
-    giveProperty(room, winner, square.index);
-    addLog(room, `${winner.name} নিলামে ${square.name} কিনলেন ৳${auction.highestBid}-এ।`);
+    pay(room, winner, seller, auction.highestBid); // seller null = bank
+    giveProperty(room, winner, square.index);      // new owner, not mortgaged, no buildings
+    addLog(room, seller
+      ? `${winner.name} নিলামে ${square.name} কিনলেন ৳${auction.highestBid}-এ — টাকা পেলেন ${seller.name}।`
+      : `${winner.name} নিলামে ${square.name} কিনলেন ৳${auction.highestBid}-এ।`);
   } else {
-    addLog(room, `কেউ দর দেননি — ${square.name} ব্যাংকের কাছেই রইল।`);
+    addLog(room, seller
+      ? `কেউ দর দেননি — ${square.name} ${seller.name}-এর কাছেই রইল।`
+      : `কেউ দর দেননি — ${square.name} ব্যাংকের কাছেই রইল।`);
   }
+
+  // Step 9: a bankruptcy auction may need to continue differently
+  // (e.g. the next property to auction) instead of finishing the turn.
   finishDecision(room);
 }
 
@@ -580,6 +704,13 @@ function endAuction(room) {
 
 function publicGame(room) {
   const game = room.game;
+
+  // Owned squares, each with the rent that applies right now (rentNow).
+  const properties = {};
+  Object.keys(game.properties).forEach((index) => {
+    properties[index] = { ...game.properties[index], rentNow: currentRent(room, Number(index)) };
+  });
+
   return {
     currentPlayerId: currentPlayer(room).id,
     phase: game.phase,
@@ -587,7 +718,7 @@ function publicGame(room) {
     dice: game.dice,
     lastMove: game.lastMove,
     rollDeadline: game.rollDeadline, // clients show a countdown to this
-    properties: game.properties,
+    properties,
     pendingDecision: game.pendingDecision,
     serverTime: Date.now(),          // lets clients correct for clock differences
     log: game.log
@@ -601,6 +732,9 @@ module.exports = {
   rollDice,
   buyProperty,
   declineProperty,
+  startOwnerAuction,
+  keepProperty,
+  startAuction, // Step 9: bank auctions for bankruptcy
   placeBid,
   passAuction,
   publicGame

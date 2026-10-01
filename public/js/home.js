@@ -252,9 +252,10 @@ function renderPlayerList(state) {
     if (player.id === myPlayerId) li.classList.add('me');
     if (!player.connected) li.classList.add('offline');
 
+    // Token: circle in the player's color with their token icon
+    // (grey / first letter until they pick)
     let html =
-      '<span class="player-piece">' + (piece ? piece.emoji : '❔') + '</span>' +
-      '<span class="color-dot" style="background:' + (color ? color.hex : '#fff') + '"></span>' +
+      tokenHtml(piece, color ? color.hex : null, player.name, 'player-token') +
       '<span class="player-name">' + escapeHtml(player.name) + '</span>';
     if (player.id === state.hostId) html += '<span class="badge badge-host">হোস্ট</span>';
     if (player.id === myPlayerId) html += '<span class="badge badge-me">আপনি</span>';
@@ -272,6 +273,8 @@ function takenByOther(state, field, value) {
 
 function renderPieceOptions(state, me) {
   pieceOptionsEl.innerHTML = '';
+  // Token previews use my color once I have picked one
+  const myColor = me ? findById(setup.colors, me.color) : null;
   setup.pieces.forEach((piece) => {
     const owner = takenByOther(state, 'piece', piece.id);
     const button = document.createElement('button');
@@ -281,7 +284,7 @@ function renderPieceOptions(state, me) {
     button.disabled = Boolean(owner);
 
     button.innerHTML =
-      '<span class="option-emoji">' + piece.emoji + '</span>' +
+      tokenHtml(piece, myColor ? myColor.hex : null, piece.name, 'option-token') +
       '<span>' + escapeHtml(piece.name) + '</span>' +
       (owner ? '<span class="option-taken">' + escapeHtml(owner.name) + '</span>' : '');
 

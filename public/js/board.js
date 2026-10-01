@@ -1,7 +1,7 @@
 // public/js/board.js
 // Draws the board from /api/board, shows a detail card when a square is
 // clicked, and draws the players' pieces on their squares.
-// Needs js/common.js (money, escapeHtml). No game logic here.
+// Needs js/common.js (money, escapeHtml) and js/icons.js. No game logic here.
 //
 // Use from a page script:
 //   await loadBoard();              // fetch data and draw the 40 squares
@@ -69,6 +69,7 @@ function createSquareElement(square) {
 
   el.className = 'square side-' + pos.side;
   if (isCorner(square.index)) el.classList.add('corner');
+  el.classList.add('type-' + square.type); // e.g. type-go, type-jail (corner accents in CSS)
   el.style.gridRow = pos.row;
   el.style.gridColumn = pos.col;
   el.dataset.index = square.index;
@@ -82,7 +83,7 @@ function createSquareElement(square) {
   if (square.type === 'property') {
     const strip = document.createElement('div');
     strip.className = 'strip';
-    strip.style.background = GROUPS[square.group].color;
+    strip.style.backgroundColor = GROUPS[square.group].color; // CSS adds a gloss on top
     el.appendChild(strip);
   }
 
@@ -94,9 +95,8 @@ function createSquareElement(square) {
   if (square.subName) {
     html += '<span class="square-sub">' + escapeHtml(square.subName) + '</span>';
   }
-  if (square.icon) {
-    html += '<span class="square-icon">' + square.icon + '</span>';
-  }
+  // Small line icon (railroads, utilities, ভাগ্য, সমাজকল্যাণ only)
+  html += squareIconSvg(square, 'square-icon');
   const priceText = squarePriceText(square);
   if (priceText) {
     html += '<span class="square-price">' + escapeHtml(priceText) + '</span>';
@@ -118,8 +118,8 @@ function renderBoard() {
   });
 }
 
-// Show owners on the board: an inset border + corner marker in the owner's
-// color. Mortgaged squares get the "mortgaged" class (dimmed, Step 7).
+// Show owners on the board: a thin bar in the owner's color along the
+// square's outer edge. Mortgaged squares get the "mortgaged" class (dimmed, Step 7).
 // properties = state.game.properties, setup = { colors } from /api/setup.
 function renderOwnership(properties, players, setup) {
   OWNERS = {};
@@ -161,12 +161,12 @@ function renderPieces(players, setup) {
     const squareEl = boardEl.querySelector('.square[data-index="' + player.position + '"]');
     if (!piece || !squareEl) return;
 
-    const marker = document.createElement('span');
-    marker.className = 'piece-marker';
-    marker.textContent = piece.emoji;
-    marker.title = player.name;
-    if (color) marker.style.borderColor = color.hex;
-    squareEl.querySelector('.square-pieces').appendChild(marker);
+    // Solid circle in the player's color with the token's line icon
+    const holder = document.createElement('span');
+    holder.className = 'piece-marker';
+    holder.title = player.name;
+    holder.innerHTML = tokenHtml(piece, color ? color.hex : null, player.name);
+    squareEl.querySelector('.square-pieces').appendChild(holder);
   });
 }
 
@@ -205,7 +205,7 @@ function propertyDetailHtml(square) {
         row('বন্ধক ছাড়াতে', money(unmortgageCost(square))) +
       '</table>' +
       '<p>মালিক: ' + ownerText(square.index) + '</p>' +
-      '<div class="detail-note">📍 বিখ্যাত: ' + escapeHtml(square.note) + '</div>' +
+      '<div class="detail-note">বিখ্যাত: ' + escapeHtml(square.note) + '</div>' +
     '</div>'
   );
 }
@@ -214,7 +214,7 @@ function railroadDetailHtml(square) {
   const r = RULES.railroadRent;
   return (
     '<div class="detail-header">' +
-      '<span class="detail-icon">' + square.icon + '</span>' +
+      squareIconSvg(square, 'detail-icon') +
       '<h2>' + escapeHtml(square.name) + '</h2>' +
     '</div>' +
     '<div class="detail-body">' +
@@ -236,7 +236,7 @@ function utilityDetailHtml(square) {
   const m = RULES.utilityMultipliers;
   return (
     '<div class="detail-header">' +
-      '<span class="detail-icon">' + square.icon + '</span>' +
+      squareIconSvg(square, 'detail-icon') +
       '<h2>' + escapeHtml(square.name) + '</h2>' +
     '</div>' +
     '<div class="detail-body">' +
@@ -267,7 +267,7 @@ function specialDescription(square) {
       return 'হাজতখানা থেকে বের হতে ' + money(RULES.jailFine) +
         ' জরিমানা দিন, জামিন কার্ড ব্যবহার করুন, অথবা জোড়া ফেলুন। শুধু থামলে আপনি "শুধু দেখতে আসা" — কোনো জরিমানা নেই।';
     case 'free_parking':
-      return 'বিশ্রামের জায়গা। এখানে কিছুই ঘটে না — এক কাপ চা খান! ☕';
+      return 'বিশ্রামের জায়গা। এখানে কিছুই ঘটে না — এক কাপ চা খান!';
     case 'go_to_jail':
       return 'সরাসরি হাজতখানায় যান। শুরু পার হলেও টাকা পাবেন না।';
     default:
@@ -279,7 +279,7 @@ function specialDetailHtml(square) {
   const title = square.subName ? square.name + ' / ' + square.subName : square.name;
   return (
     '<div class="detail-header">' +
-      '<span class="detail-icon">' + (square.icon || '') + '</span>' +
+      squareIconSvg(square, 'detail-icon') +
       '<h2>' + escapeHtml(title) + '</h2>' +
     '</div>' +
     '<div class="detail-body">' +
