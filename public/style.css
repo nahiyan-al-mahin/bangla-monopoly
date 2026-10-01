@@ -48,6 +48,11 @@
   --deck-community: #2b7bbf;     /* সমাজকল্যাণ: calm blue */
   --color-card-badge: #7048e8;   /* "জেল-মুক্তি কার্ড" badge */
 
+  /* --- Buildings (on color strips and cards) --- */
+  --house-color: #2f9e44;        /* small green squares */
+  --hotel-color: #e03131;        /* one red block */
+  --mortgage-tag-bg: rgba(52, 58, 64, 0.85); /* "বন্ধক" label on the board */
+
   /* --- Jail cell on the হাজতখানা corner --- */
   --jail-cell-bg: #f3e3cf;
   --jail-cell-border: #c9a27a;

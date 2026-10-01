@@ -47,6 +47,7 @@
           <span>পরীক্ষার পাশা:</span>
           <select id="debugDie1" aria-label="প্রথম পাশা"></select>
           <select id="debugDie2" aria-label="দ্বিতীয় পাশা"></select>
+          <select id="debugCard" class="debug-card" aria-label="পরের কার্ড"></select>
         </div>
 
         <div class="control-buttons">
@@ -62,6 +63,7 @@
          Narrower screens: below the board (see the layout notes in board.css). -->
     <section class="panel my-panel">
       <h2 class="my-panel-title">আমার সম্পত্তি</h2>
+      <p class="my-panel-hint">কার্ডে চাপ দিয়ে বাড়ি বানান, বিক্রি করুন বা বন্ধক রাখুন।</p>
       <div id="myDeeds" class="deeds deeds-large"></div>
     </section>
 
@@ -71,6 +73,7 @@
         <h2>খেলোয়াড়</h2>
         <span class="panel-room">রুম: <strong id="gameRoomCode"></strong></span>
       </div>
+      <p id="bankStock" class="bank-stock"></p>
       <p id="connectionBanner" class="connection-banner" hidden>সংযোগ বিচ্ছিন্ন, আবার চেষ্টা হচ্ছে…</p>
       <ul id="gamePlayers" class="game-players"></ul>
 
@@ -111,6 +114,20 @@
       <p id="cardEffect" class="card-effect"></p>
     </div>
   </div>
+
+  <!-- Manage one of my properties: build, sell, mortgage (js/game.js) -->
+  <dialog id="manageDialog" class="detail-dialog manage-dialog">
+    <div id="manageHeader" class="manage-header"></div>
+    <div class="detail-body">
+      <p id="manageStatus" class="manage-status"></p>
+      <div id="manageActions" class="manage-actions"></div>
+      <p id="manageError" class="action-error" role="alert"></p>
+    </div>
+    <div class="manage-footer">
+      <button id="manageDetails" type="button" class="detail-close secondary-close">বিস্তারিত</button>
+      <button id="manageClose" type="button" class="detail-close">বন্ধ করুন</button>
+    </div>
+  </dialog>
 
   <!-- Square detail card (filled in by js/board.js) -->
   <dialog id="detailDialog" class="detail-dialog">

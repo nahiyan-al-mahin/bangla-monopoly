@@ -13,6 +13,7 @@ const engine = require('./game/engine');
 const { GameError } = require('./game/errors');
 const { GROUPS, SQUARES } = require('./data/board');
 const { PIECES } = require('./data/pieces');
+const { CHANCE, COMMUNITY } = require('./data/cards');
 
 // Render (and most hosts) give us the port in an environment variable.
 const PORT = process.env.PORT || 3000;
@@ -56,7 +57,12 @@ app.get('/api/setup', (req, res) => {
     nameMaxLength: config.nameMaxLength,
     roomCodeLength: config.roomCodeLength,
     roomCodeLetters: config.roomCodeLetters,
-    debugDice: config.debugDice, // DEBUG_DICE=1: show the dice picker
+    debugDice: config.debugDice, // DEBUG_DICE=1: show the dice + next-card pickers
+    // Card list for the DEBUG next-card picker (only sent in debug mode)
+    debugCards: config.debugDice
+      ? [...CHANCE.map((c) => ({ id: c.id, deck: 'chance', text: c.text })),
+         ...COMMUNITY.map((c) => ({ id: c.id, deck: 'community', text: c.text }))]
+      : [],
     rollTimeoutSeconds: config.ROLL_TIMEOUT_SECONDS,
     maxJailTurns: config.maxJailTurns,
     jailFine: config.jailFine,
@@ -205,6 +211,31 @@ io.on('connection', (socket) => {
     const { room, player } = findPlayer(request);
     engine.useJailFreeCard(room, player);
     broadcastRoom(room);
+  });
+
+  // DEBUG_DICE=1 only (the engine refuses it otherwise): choose the next card
+  handle(socket, 'debug:nextCard', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.debugSetNextCard(room, player, request.cardId);
+    broadcastRoom(room);
+  });
+
+  // --- Buildings and mortgage (any player, any time except during an auction) ---
+  // request.index = the square index of the player's property
+  const propertyActions = {
+    'property:buildHouse': engine.buildHouse,
+    'property:sellHouse': engine.sellHouse,
+    'property:buildHotel': engine.buildHotel,
+    'property:sellHotel': engine.sellHotel,
+    'property:mortgage': engine.mortgageProperty,
+    'property:unmortgage': engine.unmortgageProperty
+  };
+  Object.keys(propertyActions).forEach((eventName) => {
+    handle(socket, eventName, (request) => {
+      const { room, player } = findPlayer(request);
+      propertyActions[eventName](room, player, request.index);
+      broadcastRoom(room);
+    });
   });
 
   // There is no "end turn" request: the server passes the turn on

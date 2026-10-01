@@ -33,6 +33,17 @@ const actionError = document.getElementById('actionError');
 const debugDiceBox = document.getElementById('debugDice');
 const debugDie1 = document.getElementById('debugDie1');
 const debugDie2 = document.getElementById('debugDie2');
+const debugCard = document.getElementById('debugCard');
+const bankStock = document.getElementById('bankStock');
+
+// Manage view (build / sell / mortgage one of my properties)
+const manageDialog = document.getElementById('manageDialog');
+const manageHeader = document.getElementById('manageHeader');
+const manageStatus = document.getElementById('manageStatus');
+const manageActions = document.getElementById('manageActions');
+const manageError = document.getElementById('manageError');
+const manageDetails = document.getElementById('manageDetails');
+const manageClose = document.getElementById('manageClose');
 const rollTimer = document.getElementById('rollTimer');
 const rollTimerFill = document.getElementById('rollTimerFill');
 const rollTimerText = document.getElementById('rollTimerText');
@@ -138,6 +149,7 @@ function shakeDice() {
 // Rent text on a title-deed card: "৳76", or "পাশা × 4" for utilities.
 // rentNow comes from the server (it knows full sets, railroad counts, ...).
 function deedRentText(owned) {
+  if (owned.mortgaged) return 'বন্ধক'; // mortgaged: no rent
   const rent = owned.rentNow;
   if (!rent) return '';
   return rent.multiplier ? `পাশা × ${rent.multiplier}` : money(rent.amount);
@@ -173,6 +185,7 @@ function deedsHtml(playerId, properties) {
           ' data-index="' + square.index + '" title="' + escapeHtml(square.name) + '">' +
         head +
         '<span class="deed-name">' + escapeHtml(square.name) + '</span>' +
+        buildingsHtml(owned.houses, 'deed-buildings') +
         '<span class="deed-rent">' + escapeHtml(deedRentText(owned)) + '</span>' +
       '</button>';
     }).join('') + '</div>'
@@ -340,6 +353,108 @@ function renderJailButtons(show, me) {
     sendRequest('game:roll', dice ? { dice } : {}, actionError);
   }));
 }
+
+// ---------- Bank stock ----------
+
+function renderBankStock(state) {
+  const bank = state.game.bank;
+  bankStock.textContent = `ব্যাংকে: বাড়ি ${bank.houses} · হোটেল ${bank.hotels}`;
+}
+
+// ---------- Manage view: build / sell / mortgage ----------
+// Opened by clicking one of MY title-deed cards. The server sends, for each
+// owned square, what is allowed right now and why not (options.*.reason),
+// so the buttons and reasons always match the server's rules.
+
+let managedIndex = null; // square index shown in the manage view, or null
+
+function openManage(index) {
+  managedIndex = index;
+  manageError.textContent = '';
+  renderManage(latestState);
+  if (managedIndex !== null && !manageDialog.open) manageDialog.showModal();
+}
+
+function closeManage() {
+  managedIndex = null;
+  if (manageDialog.open) manageDialog.close();
+}
+
+function buildingsText(houses) {
+  if (houses === 5) return 'হোটেল';
+  if (houses > 0) return `${houses}টি বাড়ি`;
+  return 'কোনো বাড়ি নেই';
+}
+
+function renderManage(state) {
+  if (managedIndex === null) return;
+  const owned = state.game.properties[managedIndex];
+  if (!owned || owned.ownerId !== myPlayerId) {
+    closeManage(); // sold or lost in the meantime
+    return;
+  }
+  const square = SQUARES[managedIndex];
+  const options = owned.options;
+
+  // Header: group color (or grey + icon for railroads/utilities) + name
+  const dark = !square.group || DARK_GROUPS.includes(square.group);
+  manageHeader.className = 'manage-header' + (dark ? ' dark-bg' : '');
+  manageHeader.style.background = squareColor(square);
+  manageHeader.innerHTML = squareIconSvg(square, 'title-icon') +
+    '<h2>' + escapeHtml(square.name) + '</h2>' +
+    (square.group ? '<span class="detail-group">' + escapeHtml(GROUPS[square.group].name) + ' রঙ</span>' : '');
+
+  const parts = [];
+  if (square.type === 'property') parts.push(buildingsText(owned.houses));
+  if (owned.mortgaged) parts.push('বন্ধক রাখা — কোনো ভাড়া নেই');
+  else parts.push('এখনকার ভাড়া: ' + deedRentText(owned));
+  manageStatus.textContent = parts.join(' · ');
+
+  // One row per action: [label, option, event, amount text]
+  const rows = [];
+  if (options.buildHouse) {
+    rows.push(['বাড়ি বানাও', options.buildHouse, 'property:buildHouse', money(options.buildHouse.amount)]);
+    rows.push(['বাড়ি বিক্রি', options.sellHouse, 'property:sellHouse', '+' + money(options.sellHouse.amount)]);
+    if (owned.houses === 5) {
+      rows.push(['হোটেল বিক্রি', options.sellHotel, 'property:sellHotel', '+' + money(options.sellHotel.amount)]);
+    } else {
+      rows.push(['হোটেল বানাও', options.buildHotel, 'property:buildHotel', money(options.buildHotel.amount)]);
+    }
+  }
+  if (owned.mortgaged) {
+    rows.push(['বন্ধক ছাড়াও', options.unmortgage, 'property:unmortgage', money(options.unmortgage.amount)]);
+  } else {
+    rows.push(['বন্ধক রাখো', options.mortgage, 'property:mortgage', '+' + money(options.mortgage.amount)]);
+  }
+
+  manageActions.innerHTML = '';
+  rows.forEach(([label, option, eventName, amountText]) => {
+    const row = document.createElement('div');
+    row.className = 'manage-row';
+    const button = makeButton('', 'manage-btn', Boolean(option.reason) || waitingForServer,
+      () => sendRequest(eventName, { index: managedIndex }, manageError));
+    button.innerHTML = '<span>' + escapeHtml(label) + '</span><span class="manage-amount">' + escapeHtml(amountText) + '</span>';
+    row.appendChild(button);
+    if (option.reason) {
+      const reason = document.createElement('span');
+      reason.className = 'manage-reason';
+      reason.textContent = option.reason;
+      row.appendChild(reason);
+    }
+    manageActions.appendChild(row);
+  });
+}
+
+manageClose.addEventListener('click', closeManage);
+manageDialog.addEventListener('close', () => { managedIndex = null; });
+manageDialog.addEventListener('click', (event) => {
+  if (event.target === manageDialog) closeManage(); // click on the backdrop
+});
+manageDetails.addEventListener('click', () => {
+  const index = managedIndex;
+  closeManage();
+  if (index !== null) showDetail(index);
+});
 
 // ---------- Card display (ভাগ্য / সমাজকল্যাণ) ----------
 // The server shows a drawn card for CARD_SHOW_MS, then applies it and
@@ -572,6 +687,8 @@ function renderAll() {
   gameRoomCode.textContent = state.code;
   renderMyDeeds(state);
   renderPlayers(state);
+  renderBankStock(state);
+  renderManage(state);
   renderTurnInfo(state);
   renderControls(state);
   renderDecision(state);
@@ -672,9 +789,13 @@ function sendDecision(eventName, extraData) {
 gameLayout.addEventListener('click', (event) => {
   // Clicking a title-deed card or a property chip opens the same detail
   // card as clicking the board square.
+  // My own title-deed cards open the manage view (build/sell/mortgage);
+  // other cards and chips open the normal detail card.
   const card = event.target.closest('.deed, .mini-chip');
   if (card) {
-    showDetail(Number(card.dataset.index));
+    const index = Number(card.dataset.index);
+    if (card.closest('#myDeeds')) openManage(index);
+    else showDetail(index);
     return;
   }
 
@@ -695,6 +816,26 @@ rollBtn.addEventListener('click', () => {
 
 // Fill the debug selects: "random" plus 1-6.
 function setupDebugDice() {
+  // Next-card picker: choosing a card puts it on top of its deck (the server
+  // accepts this only with DEBUG_DICE=1). The select then resets.
+  debugCard.innerHTML = '<option value="">পরের কার্ড: এলোমেলো</option>';
+  [['chance', 'ভাগ্য'], ['community', 'সমাজকল্যাণ']].forEach(([deck, label]) => {
+    const group = document.createElement('optgroup');
+    group.label = label;
+    setup.debugCards.filter((c) => c.deck === deck).forEach((c) => {
+      const option = document.createElement('option');
+      option.value = c.id;
+      option.textContent = c.text.length > 48 ? c.text.slice(0, 48) + '…' : c.text;
+      group.appendChild(option);
+    });
+    debugCard.appendChild(group);
+  });
+  debugCard.addEventListener('change', () => {
+    const cardId = debugCard.value;
+    debugCard.value = '';
+    if (cardId) sendRequest('debug:nextCard', { cardId }, actionError);
+  });
+
   [debugDie1, debugDie2].forEach((select) => {
     select.innerHTML = '<option value="">এলোমেলো</option>';
     for (let value = 1; value <= 6; value++) {

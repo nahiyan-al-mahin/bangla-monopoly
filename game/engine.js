@@ -31,6 +31,9 @@
 //      doubles -> same player, phase 'roll' with a new timer
 //      otherwise -> next player, phase 'roll' with a new timer
 //
+// Buildings and mortgages (Step 7) are not part of the turn: any player may
+// build/sell/mortgage at any time except during an auction (see below).
+//
 // Going to jail (3rd double in a row, হাজতখানায় যাও, or a card) ends the
 // turn: no extra roll, even after doubles (classic rule).
 //
@@ -44,7 +47,7 @@
 const crypto = require('crypto');
 const config = require('./config');
 const { fail } = require('./errors');
-const { SQUARES } = require('../data/board');
+const { SQUARES, GROUPS } = require('../data/board');
 const { CHANCE, COMMUNITY, DECK_NAMES } = require('../data/cards');
 
 // All cards by id, so decks can store just ids
@@ -82,7 +85,32 @@ const MSG = {
   notInJail: 'আপনি হাজতে নেই।',
   jailOptionsOnlyBeforeRoll: 'পাশা ফেলার আগেই শুধু এটি করা যায়।',
   cannotAffordFine: `জরিমানা ৳${config.jailFine} দেওয়ার মতো টাকা নেই।`,
-  noJailFreeCard: 'আপনার কাছে জেল-মুক্তি কার্ড নেই।'
+  noJailFreeCard: 'আপনার কাছে জেল-মুক্তি কার্ড নেই।',
+  // DEBUG_DICE card picker
+  debugOff: 'পরীক্ষা মোড (DEBUG_DICE) চালু নেই।',
+  unknownCard: 'এই কার্ডটি পাওয়া যায়নি।',
+  cardIsHeld: 'এই কার্ডটি এখন একজন খেলোয়াড়ের হাতে আছে।',
+  // Buildings and mortgage
+  auctionRunning: 'নিলাম চলার সময় এটি করা যাবে না।',
+  notYourProperty: 'এটি আপনার সম্পত্তি নয়।',
+  cannotBuildHere: 'রেলস্টেশন বা ইউটিলিটিতে বাড়ি হয় না',
+  noFullSet: 'পুরো রঙের সেট নেই',
+  groupMortgaged: 'এই রঙের কোনো সম্পত্তি বন্ধক রাখা',
+  notEnoughMoney: 'টাকা যথেষ্ট নয়',
+  buildEvenly: 'সমানভাবে বানাতে হবে',
+  sellEvenly: 'সমানভাবে বিক্রি করতে হবে',
+  nextIsHotel: '4টি বাড়ি হয়ে গেছে — এবার হোটেল',
+  needFourHouses: 'রঙের প্রতিটি সম্পত্তিতে 4টি বাড়ি লাগবে',
+  alreadyHotel: 'ইতিমধ্যে হোটেল আছে',
+  noHousesInBank: 'ব্যাংকে আর বাড়ি নেই',
+  noHotelsInBank: 'ব্যাংকে আর হোটেল নেই',
+  sellHotelFirst: 'আগে হোটেল বিক্রি করুন',
+  noHouseToSell: 'বিক্রি করার মতো বাড়ি নেই',
+  noHotelToSell: 'এখানে হোটেল নেই',
+  bankHousesForHotel: (n) => `হোটেল বিক্রি করলে 4টি বাড়ি ফেরত লাগে, কিন্তু ব্যাংকে আছে ${n}টি। আগে কোথাও বাড়ি বিক্রি করুন।`,
+  alreadyMortgaged: 'ইতিমধ্যে বন্ধক রাখা',
+  notMortgaged: 'বন্ধক রাখা নেই',
+  sellBuildingsFirst: 'আগে এই রঙের সব বাড়ি/হোটেল বিক্রি করুন'
 };
 
 // server.js registers a function here. Timers change the game without any
@@ -119,6 +147,8 @@ function initGame(room) {
     //   { ownerId, mortgaged (Step 7), houses: 0-4, 5 = hotel (Step 7) }
     // A square that is not in here belongs to the bank.
     properties: {},
+    // Houses and hotels the bank still has (first come, first served)
+    bank: { houses: config.bankHouses, hotels: config.bankHotels },
     // A decision that must be answered before the turn can go on:
     //   { type: 'buy', playerId, squareIndex, deadline }
     //   { type: 'ownerAuction', playerId, squareIndex, minBid, deadline }
@@ -1007,6 +1037,251 @@ function useJailFreeCard(room, player) {
   startRollTimer(room);
 }
 
+// ---------- DEBUG_DICE only: choose the next card ----------
+// Moves a card to the top of its deck so the next draw from that deck is it.
+// Ignored (refused) when the server runs without DEBUG_DICE=1.
+
+function debugSetNextCard(room, player, cardId) {
+  requirePlaying(room);
+  if (!config.debugDice) fail(MSG.debugOff);
+  const card = CARDS_BY_ID[cardId];
+  if (!card) fail(MSG.unknownCard);
+
+  const deck = room.game.decks[card.deck];
+  const position = deck.indexOf(cardId);
+  if (position === -1) fail(MSG.cardIsHeld); // a jail-free card a player is holding
+  deck.splice(position, 1);
+  deck.unshift(cardId);
+  addLog(room, `[পরীক্ষা] ${player.name} পরের ${DECK_NAMES[card.deck]} কার্ড বেছে নিলেন।`);
+}
+
+// ---------- Buildings and mortgage (Step 7) ----------
+// Any player, any time (also off-turn and in jail), except while an
+// auction is running. Each check below returns null when the action is
+// allowed, otherwise a short Bangla reason. The same checks are used to
+// refuse requests AND to explain disabled buttons in the manage view.
+//
+// houses: 0-4 = number of houses, 5 = hotel.
+// Bank stock: room.game.bank = { houses, hotels } (config.bankHouses/Hotels).
+
+const HOTEL = 5;
+
+function groupSquares(group) {
+  return SQUARES.filter((s) => s.group === group);
+}
+
+function housesOn(room, index) {
+  const state = room.game.properties[index];
+  return state ? state.houses : 0;
+}
+
+function groupHasMortgage(room, group) {
+  return groupSquares(group).some((s) => room.game.properties[s.index] && room.game.properties[s.index].mortgaged);
+}
+
+function groupHasBuildings(room, group) {
+  return groupSquares(group).some((s) => housesOn(room, s.index) > 0);
+}
+
+function houseCostOf(square) {
+  return GROUPS[square.group].houseCost;
+}
+
+function mortgageValueOf(square) {
+  return Math.round(square.price * config.mortgageRatio);
+}
+
+function unmortgageCostOf(square) {
+  return Math.ceil(mortgageValueOf(square) * (1 + config.unmortgageInterestRate));
+}
+
+// Things every manage action needs: game running, no auction, my square.
+function basicProblem(room, player, index) {
+  if (room.status !== 'playing' || !room.game || room.game.stopped) return MSG.notPlaying;
+  if (room.game.phase === 'auction') return MSG.auctionRunning;
+  const square = SQUARES[index];
+  if (!square || !BUYABLE_TYPES.includes(square.type)) return MSG.notYourProperty;
+  const state = room.game.properties[index];
+  if (!state || state.ownerId !== player.id) return MSG.notYourProperty;
+  return null;
+}
+
+// Checks shared by building houses and hotels (money is checked last, so
+// the player sees the more important reason first).
+function buildBaseProblem(room, player, index) {
+  const square = SQUARES[index];
+  if (square.type !== 'property') return MSG.cannotBuildHere;
+  if (!ownsWholeGroup(room, player, square.group)) return MSG.noFullSet;
+  if (groupHasMortgage(room, square.group)) return MSG.groupMortgaged;
+  return null;
+}
+
+function buildHouseProblem(room, player, index) {
+  const problem = basicProblem(room, player, index) || buildBaseProblem(room, player, index);
+  if (problem) return problem;
+  const square = SQUARES[index];
+  const houses = housesOn(room, index);
+  if (houses === HOTEL) return MSG.alreadyHotel;
+  if (houses === 4) return MSG.nextIsHotel;
+  // Even building: only on a square with the LOWEST count in its group.
+  const lowest = Math.min(...groupSquares(square.group).map((s) => housesOn(room, s.index)));
+  if (houses > lowest) return MSG.buildEvenly;
+  if (room.game.bank.houses < 1) return MSG.noHousesInBank;
+  if (player.money < houseCostOf(square)) return MSG.notEnoughMoney;
+  return null;
+}
+
+function buildHotelProblem(room, player, index) {
+  const problem = basicProblem(room, player, index) || buildBaseProblem(room, player, index);
+  if (problem) return problem;
+  const square = SQUARES[index];
+  if (housesOn(room, index) === HOTEL) return MSG.alreadyHotel;
+  // Every square of the group needs 4 houses (or already a hotel).
+  const allFour = groupSquares(square.group).every((s) => housesOn(room, s.index) >= 4);
+  if (housesOn(room, index) !== 4 || !allFour) return MSG.needFourHouses;
+  if (room.game.bank.hotels < 1) return MSG.noHotelsInBank;
+  if (player.money < houseCostOf(square)) return MSG.notEnoughMoney;
+  return null;
+}
+
+function sellHouseProblem(room, player, index) {
+  const problem = basicProblem(room, player, index);
+  if (problem) return problem;
+  const square = SQUARES[index];
+  if (square.type !== 'property') return MSG.cannotBuildHere;
+  const houses = housesOn(room, index);
+  if (houses === HOTEL) return MSG.sellHotelFirst;
+  if (houses === 0) return MSG.noHouseToSell;
+  // Even selling: only from a square with the HIGHEST count in its group.
+  const highest = Math.max(...groupSquares(square.group).map((s) => housesOn(room, s.index)));
+  if (houses < highest) return MSG.sellEvenly;
+  return null;
+}
+
+// Selling a hotel gives back 4 houses from the bank. If the bank has fewer
+// than 4 houses, it is refused (simplest rule that always keeps the group even).
+function sellHotelProblem(room, player, index) {
+  const problem = basicProblem(room, player, index);
+  if (problem) return problem;
+  if (SQUARES[index].type !== 'property') return MSG.cannotBuildHere;
+  if (housesOn(room, index) !== HOTEL) return MSG.noHotelToSell;
+  if (room.game.bank.houses < 4) return MSG.bankHousesForHotel(room.game.bank.houses);
+  return null;
+}
+
+function mortgageProblem(room, player, index) {
+  const problem = basicProblem(room, player, index);
+  if (problem) return problem;
+  const square = SQUARES[index];
+  if (room.game.properties[index].mortgaged) return MSG.alreadyMortgaged;
+  if (square.group && groupHasBuildings(room, square.group)) return MSG.sellBuildingsFirst;
+  return null;
+}
+
+function unmortgageProblem(room, player, index) {
+  const problem = basicProblem(room, player, index);
+  if (problem) return problem;
+  if (!room.game.properties[index].mortgaged) return MSG.notMortgaged;
+  if (player.money < unmortgageCostOf(SQUARES[index])) return MSG.notEnoughMoney;
+  return null;
+}
+
+// Turn a "problem" check into a request check (throws the Bangla reason).
+function checkOrFail(problem) {
+  if (problem) fail(problem);
+}
+
+// Read the square index sent by the client.
+function readIndex(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= BOARD_SIZE) fail(MSG.notYourProperty);
+  return index;
+}
+
+function buildHouse(room, player, rawIndex) {
+  const index = readIndex(rawIndex);
+  checkOrFail(buildHouseProblem(room, player, index));
+  const square = SQUARES[index];
+  const cost = houseCostOf(square);
+  pay(room, player, null, cost);
+  room.game.properties[index].houses += 1;
+  room.game.bank.houses -= 1;
+  addLog(room, `${player.name} ${square.name}-এ একটি বাড়ি বানালেন (৳${cost})। এখন ${room.game.properties[index].houses}টি বাড়ি।`);
+}
+
+function buildHotel(room, player, rawIndex) {
+  const index = readIndex(rawIndex);
+  checkOrFail(buildHotelProblem(room, player, index));
+  const square = SQUARES[index];
+  const cost = houseCostOf(square); // a hotel = 4 houses + 1 more house price
+  pay(room, player, null, cost);
+  room.game.properties[index].houses = HOTEL;
+  room.game.bank.houses += 4; // the 4 houses go back to the bank
+  room.game.bank.hotels -= 1;
+  addLog(room, `${player.name} ${square.name}-এ হোটেল বানালেন (৳${cost}); 4টি বাড়ি ব্যাংকে ফেরত গেল।`);
+}
+
+function sellHouse(room, player, rawIndex) {
+  const index = readIndex(rawIndex);
+  checkOrFail(sellHouseProblem(room, player, index));
+  const square = SQUARES[index];
+  const refund = houseCostOf(square) / 2;
+  player.money += refund;
+  room.game.properties[index].houses -= 1;
+  room.game.bank.houses += 1;
+  addLog(room, `${player.name} ${square.name}-এর একটি বাড়ি বিক্রি করে ৳${refund} পেলেন।`);
+}
+
+function sellHotel(room, player, rawIndex) {
+  const index = readIndex(rawIndex);
+  checkOrFail(sellHotelProblem(room, player, index));
+  const square = SQUARES[index];
+  const refund = houseCostOf(square) / 2; // half the hotel price
+  player.money += refund;
+  room.game.properties[index].houses = 4; // back to 4 houses
+  room.game.bank.hotels += 1;
+  room.game.bank.houses -= 4;
+  addLog(room, `${player.name} ${square.name}-এর হোটেল বিক্রি করে ৳${refund} পেলেন (এখন 4টি বাড়ি)।`);
+}
+
+function mortgageProperty(room, player, rawIndex) {
+  const index = readIndex(rawIndex);
+  checkOrFail(mortgageProblem(room, player, index));
+  const square = SQUARES[index];
+  const value = mortgageValueOf(square);
+  player.money += value;
+  room.game.properties[index].mortgaged = true;
+  addLog(room, `${player.name} ${square.name} বন্ধক রেখে ৳${value} পেলেন।`);
+}
+
+function unmortgageProperty(room, player, rawIndex) {
+  const index = readIndex(rawIndex);
+  checkOrFail(unmortgageProblem(room, player, index));
+  const square = SQUARES[index];
+  const cost = unmortgageCostOf(square);
+  pay(room, player, null, cost);
+  room.game.properties[index].mortgaged = false;
+  addLog(room, `${player.name} ৳${cost} দিয়ে ${square.name}-এর বন্ধক ছাড়ালেন।`);
+}
+
+// What the owner may do with this square right now (for the manage view).
+// Each entry: { amount, reason } — reason null = allowed.
+function manageOptions(room, index) {
+  const square = SQUARES[index];
+  const owner = ownerOf(room, index);
+  const options = {
+    mortgage: { amount: mortgageValueOf(square), reason: mortgageProblem(room, owner, index) },
+    unmortgage: { amount: unmortgageCostOf(square), reason: unmortgageProblem(room, owner, index) }
+  };
+  if (square.type === 'property') {
+    const cost = houseCostOf(square);
+    options.buildHouse = { amount: cost, reason: buildHouseProblem(room, owner, index) };
+    options.sellHouse = { amount: cost / 2, reason: sellHouseProblem(room, owner, index) };
+    options.buildHotel = { amount: cost, reason: buildHotelProblem(room, owner, index) };
+    options.sellHotel = { amount: cost / 2, reason: sellHotelProblem(room, owner, index) };
+  }
+  return options;
+}
+
 // ---------- What clients may see ----------
 
 function publicGame(room) {
@@ -1015,7 +1290,11 @@ function publicGame(room) {
   // Owned squares, each with the rent that applies right now (rentNow).
   const properties = {};
   Object.keys(game.properties).forEach((index) => {
-    properties[index] = { ...game.properties[index], rentNow: currentRent(room, Number(index)) };
+    properties[index] = {
+      ...game.properties[index],
+      rentNow: currentRent(room, Number(index)),
+      options: manageOptions(room, Number(index)) // what the owner may do now
+    };
   });
 
   return {
@@ -1028,6 +1307,7 @@ function publicGame(room) {
     properties,
     pendingDecision: game.pendingDecision,
     card: game.card, // the card being shown right now, or null
+    bank: game.bank, // houses/hotels left in the bank
     serverTime: Date.now(),          // lets clients correct for clock differences
     log: game.log
   };
@@ -1040,6 +1320,13 @@ module.exports = {
   rollDice,
   payJailFine,
   useJailFreeCard,
+  debugSetNextCard,
+  buildHouse,
+  buildHotel,
+  sellHouse,
+  sellHotel,
+  mortgageProperty,
+  unmortgageProperty,
   buyProperty,
   declineProperty,
   startOwnerAuction,

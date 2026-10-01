@@ -1311,3 +1311,215 @@ body {
   background: var(--color-accent-soft);
   border-radius: var(--radius-pill);
 }
+
+/* =========================================================
+   BUILDINGS AND MORTGAGE (Step 7)
+   ========================================================= */
+
+/* Houses / hotel sit on the color strip, centered */
+.strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.buildings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25cqw;
+}
+
+/* Side columns: the strip is vertical, so stack the markers */
+.side-left .strip-buildings,
+.side-right .strip-buildings {
+  flex-direction: column;
+}
+
+.strip-buildings .house {
+  width: 1.15cqw;
+  height: 1.15cqw;
+  background: var(--house-color);
+  border: 0.15cqw solid #fff;
+  border-radius: 0.2cqw;
+}
+
+.strip-buildings .hotel {
+  width: 2.6cqw;
+  height: 1.4cqw;
+  background: var(--hotel-color);
+  border: 0.15cqw solid #fff;
+  border-radius: 0.25cqw;
+}
+
+.side-left .strip-buildings .hotel,
+.side-right .strip-buildings .hotel {
+  width: 1.4cqw;
+  height: 2.6cqw;
+}
+
+/* Mortgaged square: dimmed (see .square.mortgaged above) + a small tag */
+.square.mortgaged::before {
+  content: 'বন্ধক';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  padding: 0.15cqw 0.6cqw; /* no z-index: tokens on the square stay on top */
+  font-size: 1.05cqw;
+  font-weight: 600;
+  color: #fff;
+  background: var(--mortgage-tag-bg);
+  border-radius: var(--radius-pill);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* Buildings on the title-deed cards */
+.deed-buildings {
+  padding: 1px 0 2px;
+}
+
+.deed-buildings .house {
+  width: 6px;
+  height: 6px;
+  background: var(--house-color);
+  border-radius: 1px;
+}
+
+.deed-buildings .hotel {
+  width: 14px;
+  height: 7px;
+  background: var(--hotel-color);
+  border-radius: 2px;
+}
+
+.deeds-large .deed-buildings .house { width: 7px; height: 7px; }
+.deeds-large .deed-buildings .hotel { width: 16px; height: 8px; }
+
+/* "আমার সম্পত্তি" hint and bank stock line */
+.my-panel-hint {
+  margin: -6px 0 12px;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.bank-stock {
+  margin: var(--space-half) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+/* DEBUG next-card picker */
+.debug-card {
+  max-width: 100%;
+}
+
+/* ---------- Manage view (dialog) ---------- */
+
+.manage-dialog {
+  width: min(94vw, 380px);
+}
+
+.manage-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-2);
+  text-align: center;
+  color: var(--color-text);
+}
+
+.manage-header.dark-bg {
+  color: #fff;
+}
+
+.manage-header .title-icon {
+  color: inherit;
+}
+
+.manage-header h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.manage-header .detail-group {
+  font-size: var(--fs-sm);
+  opacity: 0.85;
+}
+
+.manage-status {
+  margin: 0 0 12px;
+  font-size: var(--fs-sm);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.manage-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.manage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.manage-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.manage-btn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.manage-btn:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-color: var(--color-border);
+  cursor: not-allowed;
+}
+
+.manage-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Why a button is disabled ("সমানভাবে বানাতে হবে", ...) */
+.manage-reason {
+  padding-left: 12px;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.manage-footer {
+  display: flex;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.manage-footer .detail-close {
+  flex: 1;
+  width: auto;
+  margin: 0;
+}
+
+.detail-close.secondary-close {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}

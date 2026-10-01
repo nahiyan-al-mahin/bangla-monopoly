@@ -128,8 +128,18 @@ function renderBoard() {
   });
 }
 
+// Buildings as small markers: 1-4 green squares (houses) or one red
+// block (hotel = 5). Used on the board's color strips and on the cards.
+function buildingsHtml(houses, className) {
+  if (!houses) return '';
+  const inner = houses === 5
+    ? '<span class="hotel" title="হোটেল"></span>'
+    : '<span class="house"></span>'.repeat(houses);
+  return '<span class="buildings ' + (className || '') + '">' + inner + '</span>';
+}
+
 // Show owners on the board: a thin bar in the owner's color along the
-// square's outer edge. Mortgaged squares get the "mortgaged" class (dimmed, Step 7).
+// square's outer edge, plus buildings on the color strip. Mortgaged squares get the "mortgaged" class (dimmed, Step 7).
 // properties = state.game.properties, setup = { colors } from /api/setup.
 function renderOwnership(properties, players, setup) {
   OWNERS = {};
@@ -141,9 +151,18 @@ function renderOwnership(properties, players, setup) {
 
     squareEl.classList.toggle('owned', Boolean(owner));
     squareEl.classList.toggle('mortgaged', Boolean(owned && owned.mortgaged));
+
+    // Houses / hotel on the color strip
+    const strip = squareEl.querySelector('.strip');
+    if (strip) strip.innerHTML = owned ? buildingsHtml(owned.houses, 'strip-buildings') : '';
     if (owner) {
       squareEl.style.setProperty('--owner-color', color ? color.hex : '#333');
-      OWNERS[index] = { name: owner.name, colorHex: color ? color.hex : '#333', mortgaged: owned.mortgaged };
+      OWNERS[index] = {
+        name: owner.name,
+        colorHex: color ? color.hex : '#333',
+        mortgaged: owned.mortgaged,
+        houses: owned.houses
+      };
     } else {
       squareEl.style.removeProperty('--owner-color');
     }
@@ -154,8 +173,11 @@ function renderOwnership(properties, players, setup) {
 function ownerText(index) {
   const owner = OWNERS[index];
   if (!owner) return 'ব্যাংক';
+  let extra = '';
+  if (owner.houses === 5) extra = ' · হোটেল';
+  else if (owner.houses > 0) extra = ' · ' + owner.houses + 'টি বাড়ি';
   return '<span class="owner-dot" style="background:' + owner.colorHex + '"></span>' +
-    escapeHtml(owner.name) + (owner.mortgaged ? ' (বন্ধক রাখা)' : '');
+    escapeHtml(owner.name) + extra + (owner.mortgaged ? ' (বন্ধক রাখা)' : '');
 }
 
 // Draw every player's piece on the square at player.position.
