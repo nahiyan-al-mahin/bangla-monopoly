@@ -1,7 +1,11 @@
-/* public/css/board.css — static game board (Step 2) */
+/* public/css/board.css — game page: board, dice, controls, players, log */
 
 * {
   box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 body {
@@ -18,12 +22,65 @@ body {
   color: #1d1d1d;
 }
 
+/* ---------- Layout ----------
+   Phones (default): board, then controls, then players + log, stacked.
+   Wide screens (900px+): board with controls inside its center, panel on the right. */
+
+.game-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+/* Holds the board and the controls. Its width decides the board size.
+   "cqw" units inside are a % of this width, so everything scales together. */
+.board-area {
+  position: relative;
+  width: min(100vw - 16px, 100dvh - 16px, 900px);
+  container-type: inline-size;
+}
+
+.side-panel {
+  width: min(100vw - 16px, 900px);
+  padding: 12px;
+  background: #fffdf2;
+  border: 2px solid #1d1d1d;
+  border-radius: 10px;
+}
+
+@media (min-width: 900px) {
+  .game-layout {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  .board-area {
+    width: min(100vw - 320px, 100dvh - 16px, 900px);
+  }
+
+  .side-panel {
+    width: 280px;
+  }
+
+  /* Controls float inside the lower half of the board center. */
+  .controls {
+    position: absolute;
+    top: 52%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 56%;
+    margin: 0;
+  }
+}
+
 /* ---------- Board grid ---------- */
 
-/* The board is always square and as large as the screen allows.
-   Corners are wider than normal squares (13 vs 8 units), like a real board. */
+/* Always square. Corners are wider than normal squares (13 vs 8 units). */
 .board {
-  width: min(100vw - 16px, 100dvh - 16px, 900px);
+  width: 100%;
   aspect-ratio: 1 / 1;
   display: grid;
   /* minmax(0, ...) lets columns shrink below their text width on small phones */
@@ -33,9 +90,10 @@ body {
   padding: 1px;
   background: #1d1d1d; /* shows through the gaps as grid lines */
   border: 2px solid #1d1d1d;
-  /* "cqw" units below are a % of the board width, so text scales with the board */
   container-type: inline-size;
 }
+
+/* ---------- Board center: title, whose turn, dice ---------- */
 
 .board-center {
   grid-row: 2 / 11;
@@ -44,49 +102,171 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 4cqw;
+  justify-content: flex-start;
+  gap: 2.5cqw;
   text-align: center;
-  padding: 2cqw;
+  padding: 5cqw 2cqw 2cqw;
+}
+
+/* On phones the controls are below the board, so center the content. */
+@media (max-width: 899px) {
+  .board-center {
+    justify-content: center;
+  }
 }
 
 .board-title {
   margin: 0;
-  font-size: 7cqw;
+  font-size: 6cqw;
   font-weight: 700;
   color: #b02a37;
-  transform: rotate(-8deg);
+  transform: rotate(-4deg);
 }
 
-.deck-row {
+.turn-info {
   display: flex;
-  gap: 5cqw;
-}
-
-.deck {
-  width: 22cqw;
-  height: 14cqw;
-  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  border: 0.4cqw dashed #1d1d1d;
+  gap: 0.6cqw;
+}
+
+.turn-label {
+  font-size: 2.4cqw;
+  color: #444;
+}
+
+.turn-name {
+  padding: 0.4cqw 2.5cqw;
+  font-size: 3.6cqw;
+  font-weight: 700;
+  background: #fff;
+  border: 0.6cqw solid var(--player-color, #333);
+  border-radius: 999px;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Dice ---------- */
+
+.dice-row {
+  display: flex;
+  gap: 2.5cqw;
+}
+
+.die {
+  width: 9cqw;
+  height: 9cqw;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 0.5cqw;
+  padding: 1.2cqw;
+  background: #fff;
+  border: 0.4cqw solid #1d1d1d;
   border-radius: 1.5cqw;
-  font-size: 2.6cqw;
+  box-shadow: 0 0.5cqw 1cqw rgba(0, 0, 0, 0.25);
+}
+
+.die.empty {
+  opacity: 0.5;
+}
+
+.pip {
+  border-radius: 50%;
+}
+
+.pip.on {
+  background: #1d1d1d;
+}
+
+.die.rolling {
+  animation: dice-shake 0.45s ease-out;
+}
+
+@keyframes dice-shake {
+  0%   { transform: rotate(0deg) scale(1); }
+  25%  { transform: rotate(-20deg) scale(1.15); }
+  50%  { transform: rotate(15deg) scale(1.1); }
+  75%  { transform: rotate(-8deg) scale(1.05); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+
+/* ---------- Controls (roll / end turn) ---------- */
+
+.controls {
+  margin-top: 10px;
+  padding: 10px 12px;
+  text-align: center;
+  background: #fffdf2;
+  border: 2px solid #1d1d1d;
+  border-radius: 10px;
+}
+
+.turn-hint {
+  margin: 0 0 8px;
   font-weight: 600;
 }
 
-.deck-chance { background: #ffe1b8; }
-.deck-community { background: #cfe6ff; }
+.control-buttons {
+  display: flex;
+  gap: 8px;
+}
 
-.board-hint {
+.control-btn {
+  flex: 1;
+  padding: 12px;
+  font-family: inherit;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #fff;
+  background: #198754;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.control-btn.end-btn {
+  background: #b02a37;
+}
+
+.control-btn:disabled {
+  background: #aaa;
+  cursor: wait;
+}
+
+.action-error {
+  margin: 6px 0 0;
+  color: #b02a37;
+  font-weight: 600;
+}
+
+.action-error:empty {
   margin: 0;
-  font-size: 2.2cqw;
-  color: #444;
+}
+
+.debug-dice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 6px;
+  border: 2px dashed #f08c00;
+  border-radius: 6px;
+  background: #fff4e6;
+  font-size: 0.95rem;
+}
+
+.debug-dice select {
+  padding: 4px;
+  font-family: inherit;
+  font-size: 1rem;
 }
 
 /* ---------- Squares ---------- */
 
 .square {
+  position: relative; /* the pieces layer is placed inside the square */
   display: flex;
   background: #fffdf2;
   cursor: pointer;
@@ -158,6 +338,35 @@ body {
 
 .corner .square-name { font-size: 1.8cqw; }
 .corner .square-icon { font-size: 4.5cqw; }
+
+/* ---------- Pieces on the board ---------- */
+
+/* Pieces on the same square sit side by side (wrapping into rows),
+   so they never fully cover each other. */
+.square-pieces {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 0.2cqw;
+  pointer-events: none; /* clicks still open the square's detail card */
+}
+
+.piece-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.4cqw;
+  height: 3.4cqw;
+  font-size: 2.1cqw;
+  line-height: 1;
+  background: #fff;
+  border: 0.45cqw solid #333; /* replaced by the player's color */
+  border-radius: 50%;
+  box-shadow: 0 0.2cqw 0.5cqw rgba(0, 0, 0, 0.4);
+}
 
 /* ---------- Detail card (dialog) ---------- */
 
@@ -244,75 +453,7 @@ body {
   cursor: pointer;
 }
 
-/* ---------- Pieces on the board ---------- */
-
-.square {
-  position: relative; /* the pieces layer is placed inside the square */
-}
-
-.square-pieces {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-content: center;
-  justify-content: center;
-  gap: 0.2cqw;
-  pointer-events: none; /* clicks still open the square's detail card */
-}
-
-.piece-marker {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 3.4cqw;
-  height: 3.4cqw;
-  font-size: 2.1cqw;
-  line-height: 1;
-  background: #fff;
-  border: 0.45cqw solid #333; /* replaced by the player's color */
-  border-radius: 50%;
-  box-shadow: 0 0.2cqw 0.5cqw rgba(0, 0, 0, 0.4);
-}
-
-/* ---------- Game page layout ---------- */
-
-[hidden] {
-  display: none !important;
-}
-
-.game-layout {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-}
-
-.side-panel {
-  width: min(100vw - 16px, 900px);
-  padding: 12px;
-  background: #fffdf2;
-  border: 2px solid #1d1d1d;
-  border-radius: 10px;
-}
-
-/* Wide screens: board on the left, panel on the right */
-@media (min-width: 900px) {
-  .game-layout {
-    flex-direction: row;
-    align-items: flex-start;
-    justify-content: center;
-  }
-
-  .game-layout .board {
-    width: min(100vw - 320px, 100dvh - 16px, 900px);
-  }
-
-  .side-panel {
-    width: 280px;
-  }
-}
+/* ---------- Side panel: players ---------- */
 
 .panel-header {
   display: flex;
@@ -321,7 +462,8 @@ body {
   gap: 8px;
 }
 
-.panel-header h2 {
+.panel-header h2,
+.log-title {
   margin: 0;
   font-size: 1.2rem;
 }
@@ -361,12 +503,19 @@ body {
   padding: 8px 10px;
   background: #fff;
   border: 1px solid #ddd;
-  border-left: 6px solid #999; /* replaced by the player's color */
+  border-left: 6px solid var(--player-color, #999);
   border-radius: 6px;
 }
 
 .game-player.me {
   background: #fff8db;
+}
+
+/* Current player: thick outline in their color */
+.game-player.current {
+  border-color: var(--player-color, #333);
+  border-width: 3px 3px 3px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 .game-player.offline {
@@ -409,11 +558,44 @@ body {
   background: #ddd;
 }
 
+.badge-turn { background: #198754; color: #fff; }
 .badge-host { background: #ffd43b; }
 .badge-me { background: #c3fae8; }
+.badge-jail { background: #495057; color: #fff; }
 .badge-offline { background: #ffc9c9; }
 
-/* Full-page message (loading, not a member of this room, ...) */
+/* ---------- Side panel: event log ---------- */
+
+.log-title {
+  margin-top: 16px;
+}
+
+.event-log {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 0.92rem;
+}
+
+.event-log li {
+  padding: 4px 2px;
+  border-bottom: 1px dotted #ccc;
+}
+
+.event-log li:first-child {
+  font-weight: 600; /* newest entry */
+}
+
+.log-time {
+  color: #888;
+  font-size: 0.8rem;
+  font-family: monospace, sans-serif;
+}
+
+/* ---------- Full-page message (loading, not a member, ...) ---------- */
+
 .game-message {
   max-width: 420px;
   padding: 24px;

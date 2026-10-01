@@ -74,7 +74,7 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 - [x] 3. Room system: create/join/lobby/token select/start
 
-- [ ] 4. Core game loop: turns, dice, movement, GO salary
+- [x] 4. Core game loop: turns, dice, movement, GO salary
 
 - [ ] 5. Buying, rent, taxes, auction
 

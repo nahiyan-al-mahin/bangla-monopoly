@@ -22,6 +22,13 @@ const config = {
   bankHouses: 32,
   bankHotels: 12,
 
+  // --- Turns / dice ---
+  maxDoublesBeforeJail: 3, // 3 doubles in a row -> straight to jail
+  logLimit: 50,            // event log keeps the latest 50 entries
+  // Testing helper: start the server with DEBUG_DICE=1 to let the current
+  // player choose the dice values. Without it, client dice are ignored.
+  debugDice: process.env.DEBUG_DICE === '1',
+
   // --- Jail ---
   maxJailTurns: 3, // on the 3rd failed doubles attempt: pay fine and move
 

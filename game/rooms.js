@@ -1,7 +1,7 @@
 // game/rooms.js
 // In-memory room store: create/join rooms, lobby choices, starting the game.
 //
-// Every function here checks its input and throws a RoomError with a
+// Every function here checks its input and throws a GameError with a
 // Bangla message when something is not allowed. server.js catches the error
 // and sends the message to the player. This file never talks to sockets
 // directly, so all game rules stay in one place.
@@ -12,6 +12,8 @@
 
 const crypto = require('crypto');
 const config = require('./config');
+const engine = require('./engine');
+const { fail } = require('./errors');
 const { PIECES } = require('../data/pieces');
 
 // All rooms, keyed by room code (e.g. "KBTX").
@@ -40,12 +42,6 @@ const MSG = {
   someoneDisconnected: 'সব খেলোয়াড়কে সংযুক্ত থাকতে হবে।'
 };
 
-// An expected, player-caused error (wrong code, room full, ...).
-class RoomError extends Error {}
-
-function fail(message) {
-  throw new RoomError(message);
-}
 
 // server.js registers a function here so that changes made by timers
 // (removing a disconnected player) can be broadcast to the room.
@@ -117,7 +113,8 @@ function addPlayer(room, name) {
     socketId: null,
     removeTimer: null,       // lobby: removes the player after a long disconnect
     money: 0,                // set when the game starts
-    position: 0
+    position: 0,
+    inJail: false
   };
   room.players.push(player);
   // A room with no host (everyone left) gets the new player as host.
@@ -133,6 +130,7 @@ function createRoom(rawName) {
     hostId: null,
     players: [],          // seat order = join order
     deleteTimer: null,    // deletes the room when nobody is connected
+    game: null,           // turn/dice/log state, created by engine.initGame
     createdAt: Date.now()
   };
   rooms.set(room.code, room);
@@ -303,9 +301,8 @@ function startGame(room, player) {
   room.players.forEach((p) => {
     clearTimeout(p.removeTimer);
     p.removeTimer = null;
-    p.money = config.startingMoney;
-    p.position = 0; // everyone starts on শুরু
   });
+  engine.initGame(room); // money, positions, turn order, log
   console.log(`Room ${room.code}: game started with ${room.players.length} players`);
 }
 
@@ -326,15 +323,16 @@ function publicState(room) {
       color: p.color,
       connected: p.connected,
       money: p.money,
-      position: p.position
+      position: p.position,
+      inJail: p.inJail
     })),
     canStart: room.status === 'lobby' && problem === null,
-    startProblem: problem
+    startProblem: problem,
+    game: room.game ? engine.publicGame(room) : null // null while in the lobby
   };
 }
 
 module.exports = {
-  RoomError,
   setRoomChangedListener,
   createRoom,
   joinRoom,

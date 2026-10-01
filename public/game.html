@@ -17,20 +17,41 @@
   </div>
 
   <div id="gameLayout" class="game-layout" hidden>
-    <!-- The board: an 11x11 grid. js/board.js fills in the 40 squares. -->
-    <div id="board" class="board">
-      <!-- Center area (grid rows/columns 2-10) -->
-      <div class="board-center">
-        <h1 class="board-title">বাংলা মনোপলি</h1>
-        <div class="deck-row">
-          <div class="deck deck-chance">❓ ভাগ্য</div>
-          <div class="deck deck-community">🤝 সমাজকল্যাণ</div>
+    <!-- Board + controls. On wide screens the controls sit inside the
+         board center; on phones they appear below the board. -->
+    <div class="board-area">
+      <!-- The board: an 11x11 grid. js/board.js fills in the 40 squares. -->
+      <div id="board" class="board">
+        <!-- Center area (grid rows/columns 2-10) -->
+        <div class="board-center">
+          <h1 class="board-title">বাংলা মনোপলি</h1>
+          <div id="turnInfo" class="turn-info"></div>
+          <div class="dice-row">
+            <div id="die1" class="die"></div>
+            <div id="die2" class="die"></div>
+          </div>
         </div>
-        <p class="board-hint">যেকোনো ঘরে চাপ দিয়ে বিস্তারিত দেখুন</p>
+      </div>
+
+      <div id="controls" class="controls">
+        <p id="turnHint" class="turn-hint"></p>
+
+        <!-- Only visible when the server runs with DEBUG_DICE=1 -->
+        <div id="debugDice" class="debug-dice" hidden>
+          <span>পরীক্ষার পাশা:</span>
+          <select id="debugDie1" aria-label="প্রথম পাশা"></select>
+          <select id="debugDie2" aria-label="দ্বিতীয় পাশা"></select>
+        </div>
+
+        <div class="control-buttons">
+          <button id="rollBtn" type="button" class="control-btn" hidden>🎲 পাশা ফেলো</button>
+          <button id="endTurnBtn" type="button" class="control-btn end-btn" hidden>শেষ করুন</button>
+        </div>
+        <p id="actionError" class="action-error" role="alert"></p>
       </div>
     </div>
 
-    <!-- Side panel: players (money, properties and log come in later steps) -->
+    <!-- Side panel: players and event log -->
     <aside class="side-panel">
       <div class="panel-header">
         <h2>খেলোয়াড়</h2>
@@ -38,6 +59,9 @@
       </div>
       <p id="connectionBanner" class="connection-banner" hidden>সংযোগ বিচ্ছিন্ন, আবার চেষ্টা হচ্ছে…</p>
       <ul id="gamePlayers" class="game-players"></ul>
+
+      <h2 class="log-title">ঘটনা</h2>
+      <ul id="eventLog" class="event-log"></ul>
     </aside>
   </div>
 

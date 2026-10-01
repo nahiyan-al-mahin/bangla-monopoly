@@ -9,6 +9,8 @@ const express = require('express');
 const { Server } = require('socket.io');
 const config = require('./game/config');
 const rooms = require('./game/rooms');
+const engine = require('./game/engine');
+const { GameError } = require('./game/errors');
 const { GROUPS, SQUARES } = require('./data/board');
 const { PIECES } = require('./data/pieces');
 
@@ -53,7 +55,8 @@ app.get('/api/setup', (req, res) => {
     maxPlayers: config.maxPlayers,
     nameMaxLength: config.nameMaxLength,
     roomCodeLength: config.roomCodeLength,
-    roomCodeLetters: config.roomCodeLetters
+    roomCodeLetters: config.roomCodeLetters,
+    debugDice: config.debugDice // DEBUG_DICE=1: show the dice picker
   });
 });
 
@@ -68,7 +71,7 @@ function broadcastRoom(room) {
 // call this so everyone sees the change.
 rooms.setRoomChangedListener(broadcastRoom);
 
-// Register a socket event whose handler may throw a RoomError.
+// Register a socket event whose handler may throw a GameError.
 // The client always gets an answer through the acknowledgement callback:
 //   success: { ok: true, ...whatever the handler returned }
 //   failure: { ok: false, error: 'Bangla message' }
@@ -80,7 +83,7 @@ function handle(socket, eventName, handler) {
       const result = handler(request) || {};
       reply({ ok: true, ...result });
     } catch (err) {
-      if (err instanceof rooms.RoomError) {
+      if (err instanceof GameError) {
         reply({ ok: false, error: err.message });
       } else {
         console.error(`Error in "${eventName}":`, err);
@@ -172,6 +175,21 @@ io.on('connection', (socket) => {
     broadcastRoom(room); // status "playing" -> clients open game.html
   });
 
+  // --- Game (turn checks happen in game/engine.js) ---
+
+  handle(socket, 'game:roll', (request) => {
+    const { room, player } = findPlayer(request);
+    // request.dice is only looked at when DEBUG_DICE=1 (see engine.rollDice)
+    engine.rollDice(room, player, request.dice);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'game:endTurn', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.endTurn(room, player);
+    broadcastRoom(room);
+  });
+
   // --- Disconnect ---
 
   socket.on('disconnect', () => {
@@ -183,4 +201,7 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, () => {
   console.log(`Bangla Monopoly server running at http://localhost:${PORT}`);
+  if (config.debugDice) {
+    console.log('DEBUG_DICE is ON: players can choose dice values. Do not use in a real game.');
+  }
 });
