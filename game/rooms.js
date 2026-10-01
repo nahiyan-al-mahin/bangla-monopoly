@@ -112,6 +112,8 @@ function addPlayer(room, name) {
     connected: false,
     socketId: null,
     removeTimer: null,       // lobby: removes the player after a long disconnect
+    hostTimer: null,         // game: passes the host role on after a long disconnect
+    disconnectedAt: null,    // when the player lost connection (ms), or null
     money: 0,                // set when the game starts
     position: 0,
     inJail: false,
@@ -172,14 +174,24 @@ function getRoomAndPlayer(rawCode, playerToken) {
   return { room, player };
 }
 
+// Home page check: does this token still have a seat, and in what state?
+// Read-only: unlike room:resume it does not connect this socket to the seat.
+function checkSeat(rawCode, playerToken) {
+  const { room, player } = getRoomAndPlayer(rawCode, playerToken);
+  return { code: room.code, status: room.status, name: player.name };
+}
+
 // ---------- Connection tracking ----------
 
 // A socket has identified itself as this player (create, join or resume).
 function connectPlayer(room, player, socketId) {
   player.connected = true;
   player.socketId = socketId;
+  player.disconnectedAt = null;
   clearTimeout(player.removeTimer);
   player.removeTimer = null;
+  clearTimeout(player.hostTimer);
+  player.hostTimer = null;
   updateEmptyRoomTimer(room);
 }
 
@@ -193,9 +205,27 @@ function disconnectSocket(code, playerToken, socketId) {
 
   player.connected = false;
   player.socketId = null;
+  player.disconnectedAt = Date.now();
+
+  // During a game the seat is kept (the player can come back with their
+  // token). Their timers keep running: auto-roll, buy timeout, debt timeout.
+  // If the HOST stays away for hostTransferAfterMs, the next connected
+  // player in seat order becomes host (CLAUDE.md default 9).
+  if (room.status === 'playing' && room.hostId === player.id) {
+    player.hostTimer = setTimeout(() => {
+      if (rooms.get(room.code) !== room || player.connected || room.hostId !== player.id) return;
+      const seat = room.players.indexOf(player);
+      const next = pickNextHost(room, (seat + 1) % room.players.length);
+      const nextPlayer = room.players.find((p) => p.id === next);
+      if (nextPlayer && nextPlayer.connected) {
+        room.hostId = next;
+        console.log(`Room ${room.code}: host passed to "${nextPlayer.name}"`);
+        onRoomChanged(room);
+      }
+    }, config.hostTransferAfterMs);
+  }
 
   // In the lobby, free the seat if the player does not come back soon.
-  // During a game the seat is kept (reconnection rules come in Step 10).
   if (room.status === 'lobby') {
     player.removeTimer = setTimeout(() => {
       if (rooms.get(room.code) !== room) return; // room already deleted
@@ -222,7 +252,10 @@ function updateEmptyRoomTimer(room) {
 }
 
 function deleteRoom(room) {
-  room.players.forEach((p) => clearTimeout(p.removeTimer));
+  room.players.forEach((p) => {
+    clearTimeout(p.removeTimer);
+    clearTimeout(p.hostTimer);
+  });
   clearTimeout(room.deleteTimer);
   engine.stopGame(room); // stops the roll / turn timers, if a game is running
   rooms.delete(room.code);
@@ -325,6 +358,7 @@ function publicState(room) {
       piece: p.piece,
       color: p.color,
       connected: p.connected,
+      disconnectedAt: p.disconnectedAt,
       money: p.money,
       position: p.position,
       inJail: p.inJail,
@@ -343,6 +377,7 @@ module.exports = {
   createRoom,
   joinRoom,
   getRoomAndPlayer,
+  checkSeat,
   connectPlayer,
   disconnectSocket,
   leaveRoom,

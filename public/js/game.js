@@ -36,6 +36,13 @@ const debugDie2 = document.getElementById('debugDie2');
 const debugCard = document.getElementById('debugCard');
 const bankStock = document.getElementById('bankStock');
 
+// Step 10
+const toasts = document.getElementById('toasts');
+const mobileTabs = document.getElementById('mobileTabs');
+const controlsEl = document.getElementById('controls');
+const boardCenterEl = document.querySelector('.board-center');
+const boardAreaEl = document.querySelector('.board-area');
+
 // Debts, bankruptcy, end of game (Step 9)
 const debtPanel = document.getElementById('debtPanel');
 const debtTitle = document.getElementById('debtTitle');
@@ -188,13 +195,33 @@ function renderDie(dieEl, value) {
   dieEl.classList.toggle('empty', !value);
 }
 
-// Short shake when new dice arrive.
-function shakeDice() {
-  [die1, die2].forEach((dieEl) => {
-    dieEl.classList.remove('rolling');
-    void dieEl.offsetWidth; // restart the CSS animation
-    dieEl.classList.add('rolling');
-  });
+// New roll: the dice tumble through random faces for diceAnimationMs,
+// then show the result. (The server waits the same time before the walk.)
+let diceTumbling = false;
+let tumbleRun = 0;
+let lastDiceRollId = null;
+
+function tumbleDice(finalDice) {
+  const run = ++tumbleRun;
+  diceTumbling = true;
+  [die1, die2].forEach((dieEl) => dieEl.classList.add('rolling'));
+  const started = Date.now();
+  const timer = setInterval(() => {
+    if (run !== tumbleRun) {
+      clearInterval(timer);
+      return;
+    }
+    if (Date.now() - started >= setup.diceAnimationMs) {
+      clearInterval(timer);
+      diceTumbling = false;
+      [die1, die2].forEach((dieEl) => dieEl.classList.remove('rolling'));
+      renderDie(die1, finalDice[0]);
+      renderDie(die2, finalDice[1]);
+      return;
+    }
+    renderDie(die1, 1 + Math.floor(Math.random() * 6));
+    renderDie(die2, 1 + Math.floor(Math.random() * 6));
+  }, 80);
 }
 
 // ---------- Player list ----------
@@ -261,6 +288,7 @@ function renderPlayers(state) {
 
     const li = document.createElement('li');
     li.className = 'game-player';
+    li.dataset.playerId = player.id;
     if (player.id === currentId) li.classList.add('current');
     if (player.id === myPlayerId) li.classList.add('me');
     if (!player.connected) li.classList.add('offline');
@@ -276,7 +304,9 @@ function renderPlayers(state) {
     if (player.jailFreeCount > 0) {
       badges += '<span class="badge badge-card">জেল-মুক্তি কার্ড ×' + player.jailFreeCount + '</span>';
     }
-    if (!player.connected) badges += '<span class="badge badge-offline">সংযোগ বিচ্ছিন্ন</span>';
+    if (!player.connected && !player.bankrupt) {
+      badges += '<span class="badge badge-offline">' + iconSvg('offline', 'badge-icon') + 'সংযোগ বিচ্ছিন্ন</span>';
+    }
 
     // A player with an open debt: money shown in red
     const inDebt = state.game.debts.some((d) => d.playerId === player.id);
@@ -286,7 +316,7 @@ function renderPlayers(state) {
       '<div class="game-player-row">' +
         tokenHtml(piece, color ? color.hex : null, player.name, 'game-player-token') +
         '<span class="game-player-info">' +
-          '<span class="game-player-name">' + escapeHtml(player.name) + '</span>' +
+          '<span class="game-player-name" title="' + escapeHtml(player.name) + '">' + escapeHtml(player.name) + '</span>' +
           '<span class="game-player-badges">' + badges + '</span>' +
         '</span>' +
         '<span class="' + moneyClass + '">' + money(player.money) + '</span>' +
@@ -296,7 +326,8 @@ function renderPlayers(state) {
         '<div class="game-player-actions">' +
           otherPlayerPropertiesHtml(player.id, state.game.properties) +
           tradeButtonHtml(state, player) +
-        '</div>');
+        '</div>' +
+        hostControlsHtml(state, player));
 
     gamePlayers.appendChild(li);
   });
@@ -348,9 +379,11 @@ function renderTurnInfo(state) {
     '<span class="turn-name">' + tokenHtml(piece, color ? color.hex : null, current.name, 'turn-token') +
       escapeHtml(current.name) + '</span>';
 
-  const dice = state.game.dice || [null, null];
-  renderDie(die1, dice[0]);
-  renderDie(die2, dice[1]);
+  if (!diceTumbling) { // while tumbling, tumbleDice() draws the faces
+    const dice = state.game.dice || [null, null];
+    renderDie(die1, dice[0]);
+    renderDie(die2, dice[1]);
+  }
 }
 
 // The roll button is shown only to the current player while they may roll.
@@ -529,6 +562,60 @@ manageDetails.addEventListener('click', () => {
   if (index !== null) showDetail(index);
 });
 
+// ---------- Host controls for a disconnected player (Step 10) ----------
+// After disconnectSkipAfterMs the host may skip their turn, after
+// disconnectBankruptAfterMs make them bankrupt. The buttons count down;
+// the server checks the host and the timings again.
+
+function hostControlsHtml(state, player) {
+  const iAmHost = state.hostId === myPlayerId;
+  if (!iAmHost || player.connected || player.bankrupt || state.game.over || !player.disconnectedAt) return '';
+  return '<div class="host-controls">' +
+    '<button type="button" class="host-ctl" data-kind="skip" data-target="' + player.id + '"></button>' +
+    '<button type="button" class="host-ctl danger" data-kind="bankrupt" data-target="' + player.id + '"></button>' +
+  '</div>';
+}
+
+function updateHostControls() {
+  if (!latestState) return;
+  const now = Date.now() + clockOffsetMs;
+  gamePlayers.querySelectorAll('.host-ctl').forEach((button) => {
+    const target = playerById(button.dataset.target);
+    if (!target || !target.disconnectedAt) return;
+    const skip = button.dataset.kind === 'skip';
+    const needMs = skip ? setup.disconnectSkipAfterMs : setup.disconnectBankruptAfterMs;
+    const leftSeconds = Math.ceil((target.disconnectedAt + needMs - now) / 1000);
+    const label = skip ? 'পালা বাদ দিন' : 'দেউলিয়া করুন';
+    const notTheirTurn = skip && latestState.game.currentPlayerId !== target.id;
+    button.textContent = leftSeconds > 0 ? label + ' (' + leftSeconds + ')' : label;
+    button.disabled = leftSeconds > 0 || notTheirTurn || waitingForServer;
+    button.title = notTheirTurn ? 'এখন এই খেলোয়াড়ের পালা নয়' : '';
+  });
+}
+
+// ---------- Layout helpers (Step 10) ----------
+
+// Wide screens: the controls card sits inside the board center (one tidy
+// stack under the dice). Phones: it is a bar fixed at the bottom.
+const wideScreen = window.matchMedia('(min-width: 900px)');
+function placeControls() {
+  if (wideScreen.matches) boardCenterEl.appendChild(controlsEl);
+  else boardAreaEl.appendChild(controlsEl);
+}
+wideScreen.addEventListener('change', placeControls);
+placeControls();
+
+// Phones: tabs for "আমার সম্পত্তি" / "খেলোয়াড়" / "ঘটনা"
+mobileTabs.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-tab]');
+  if (!button) return;
+  gameLayout.dataset.tab = button.dataset.tab;
+  mobileTabs.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === button));
+});
+
+// "বাংলা সংখ্যা" switch
+setupDigitsToggle(document.getElementById('digitsToggle'));
+
 // ---------- Debts (Step 9) ----------
 // The debtor sees what they owe, their cash, the most they could raise,
 // and a countdown. Selling/mortgaging (manage view) and trading stay
@@ -577,6 +664,7 @@ function renderDebt(state) {
 
 debtPay.addEventListener('click', () => sendRequest('debt:pay', {}, debtError));
 debtManage.addEventListener('click', () => {
+  mobileTabs.querySelector('button[data-tab="mine"]').click(); // phones: switch tab
   document.querySelector('.my-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 debtBankrupt.addEventListener('click', () => {
@@ -1068,6 +1156,9 @@ function updateCountdown() {
   // Trade offers (incoming panel + my outgoing offer)
   updateTradeCountdowns();
 
+  // Host controls count down to their allowed time
+  updateHostControls();
+
   // Debt countdown
   const openDebt = game.debts && game.debts[0];
   if (openDebt && !debtPanel.hidden) {
@@ -1156,6 +1247,12 @@ async function animateMove(move) {
   displayPositions[move.playerId] = move.from;
   drawPieces();
 
+  // A dice move starts walking after the dice tumble
+  if (move.byDice) {
+    await sleep(setup.diceAnimationMs);
+    if (run !== animationRun) return;
+  }
+
   for (const index of move.path) {
     await sleep(setup.moveStepMs);
     if (run !== animationRun) return; // a newer move took over
@@ -1183,19 +1280,113 @@ function handleState(state, isFirstLoad) {
   const move = state.game.lastMove;
   const isNewMove = move && move.id !== lastAnimatedMoveId;
 
+  // New dice roll (also a failed jail roll without a move): tumble the dice
+  const newRoll = !isFirstLoad && state.game.dice && state.game.diceRollId !== lastDiceRollId;
+  lastDiceRollId = state.game.diceRollId;
+  if (newRoll) diceTumbling = true;
+
+  const deltas = moneyDeltas(state, isFirstLoad);
+
   if (isFirstLoad || !isNewMove) {
-    // Nothing to animate (page just loaded, the turn passed on, a bid, ...).
+    // Nothing to walk (page just loaded, the turn passed on, a bid, ...).
     if (move) lastAnimatedMoveId = move.id;
     if (!animating) syncPositions();
     renderAll();
-    return;
+  } else {
+    // A new move: dice tumble, then the piece walks.
+    lastAnimatedMoveId = move.id;
+    renderAll();
+    animateMove(move);
   }
 
-  // A new move: show the dice, then walk the piece.
-  lastAnimatedMoveId = move.id;
-  renderAll();
-  shakeDice();
-  animateMove(move);
+  if (newRoll) tumbleDice(state.game.dice);
+  showMoneyFloats(deltas);
+  notifyMe(state, isFirstLoad);
+}
+
+// ---------- Money change floats ----------
+// A small "+৳200" / "−৳55" rises next to a player's money when it changes.
+
+const lastMoney = {};
+
+function moneyDeltas(state, isFirstLoad) {
+  const deltas = [];
+  state.players.forEach((p) => {
+    if (!isFirstLoad && lastMoney[p.id] !== undefined && p.money !== lastMoney[p.id]) {
+      deltas.push([p.id, p.money - lastMoney[p.id]]);
+    }
+    lastMoney[p.id] = p.money;
+  });
+  return deltas;
+}
+
+function showMoneyFloats(deltas) {
+  deltas.forEach(([id, delta]) => {
+    const moneyEl = gamePlayers.querySelector('.game-player[data-player-id="' + id + '"] .game-player-money');
+    if (!moneyEl) return;
+    const float = document.createElement('span');
+    float.className = 'money-float ' + (delta > 0 ? 'plus' : 'minus');
+    float.textContent = (delta > 0 ? '+' : '−') + money(Math.abs(delta));
+    moneyEl.appendChild(float);
+    setTimeout(() => float.remove(), 1600);
+  });
+}
+
+// ---------- Toasts: short notes for things that concern me ----------
+
+function showToast(text, kind) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.textContent = text;
+  toasts.appendChild(el);
+  setTimeout(() => el.classList.add('leaving'), 3200);
+  setTimeout(() => el.remove(), 3700);
+}
+
+const seenLog = new Set();
+const seenTrades = new Set();
+const seenDebts = new Set();
+let lastCurrentId = null;
+
+function notifyMe(state, isFirstLoad) {
+  const me = playerById(myPlayerId);
+  const game = state.game;
+
+  // Rent paid TO me ("X আমার-কে ৳55 ভাড়া দিলেন")
+  game.log.forEach((entry) => {
+    const key = entry.time + '|' + entry.text;
+    if (seenLog.has(key)) return;
+    seenLog.add(key);
+    if (isFirstLoad) return;
+    if (entry.text.includes(' ' + me.name + '-কে ৳') && entry.text.includes('ভাড়া দিলেন')) {
+      const amount = entry.text.match(/৳(\d+)/);
+      showToast('ভাড়া পেলেন: ' + money(amount ? amount[1] : ''), 'good');
+    }
+  });
+
+  // My turn started
+  if (!isFirstLoad && !game.over && game.currentPlayerId === myPlayerId && lastCurrentId !== myPlayerId) {
+    showToast('আপনার পালা!', 'good');
+  }
+  lastCurrentId = game.currentPlayerId;
+
+  // A trade offer for me
+  game.trades.forEach((trade) => {
+    if (seenTrades.has(trade.id)) return;
+    seenTrades.add(trade.id);
+    if (!isFirstLoad && trade.toId === myPlayerId) {
+      showToast(playerById(trade.fromId).name + ' বাণিজ্যের প্রস্তাব দিয়েছেন');
+    }
+  });
+
+  // A debt for me
+  game.debts.forEach((debt) => {
+    if (seenDebts.has(debt.id)) return;
+    seenDebts.add(debt.id);
+    if (!isFirstLoad && debt.playerId === myPlayerId) {
+      showToast('দেনা ' + money(debt.amount) + ' — টাকা জোগাড় করুন', 'bad');
+    }
+  });
 }
 
 // ---------- Actions ----------
@@ -1240,6 +1431,18 @@ gameLayout.addEventListener('click', (event) => {
     const index = Number(card.dataset.index);
     if (card.closest('#myDeeds')) openManage(index);
     else showDetail(index);
+    return;
+  }
+
+  // Host controls for a disconnected player
+  const hostButton = event.target.closest('.host-ctl');
+  if (hostButton) {
+    const target = playerById(hostButton.dataset.target);
+    if (hostButton.dataset.kind === 'skip') {
+      sendRequest('host:skipTurn', { targetId: target.id }, actionError);
+    } else if (window.confirm(target.name + '-কে দেউলিয়া করবেন? তার সম্পত্তি ব্যাংক নিলামে তুলবে।')) {
+      sendRequest('host:bankrupt', { targetId: target.id }, actionError);
+    }
     return;
   }
 
@@ -1349,6 +1552,11 @@ async function startGamePage() {
 
   socket.on('disconnect', () => {
     connectionBanner.hidden = false;
+  });
+
+  // The same seat was opened in another tab/device: this tab stops.
+  socket.on('session:replaced', () => {
+    showMessage('এই খেলা অন্য ট্যাবে খোলা হয়েছে। এখানে আবার খেলতে পেজটি রিফ্রেশ করুন।');
   });
 
   // Live updates: rolls, moves, purchases, bids, turn changes...

@@ -17,7 +17,7 @@
     <a id="gameMessageHome" href="/" hidden>হোম পেজে যান</a>
   </div>
 
-  <div id="gameLayout" class="game-layout" hidden>
+  <div id="gameLayout" class="game-layout" data-tab="players" hidden>
     <!-- Board + controls. On wide screens the controls sit inside the
          board center; on phones they appear below the board. -->
     <div class="board-area">
@@ -59,6 +59,13 @@
       </div>
     </div>
 
+    <!-- Phones only: tabs for my properties / players / log -->
+    <nav id="mobileTabs" class="mobile-tabs" aria-label="বিভাগ">
+      <button type="button" data-tab="mine">আমার সম্পত্তি</button>
+      <button type="button" data-tab="players" class="active">খেলোয়াড়</button>
+      <button type="button" data-tab="log">ঘটনা</button>
+    </nav>
+
     <!-- My own title-deed cards. Wide screens: left of the board.
          Narrower screens: below the board (see the layout notes in board.css). -->
     <section class="panel my-panel">
@@ -67,30 +74,43 @@
       <div id="myDeeds" class="deeds deeds-large"></div>
     </section>
 
-    <!-- Right panel: players and event log -->
+    <!-- Right panel: players and event log (phones: two of the tabs) -->
     <aside class="panel side-panel">
-      <div class="panel-header">
-        <h2>খেলোয়াড়</h2>
-        <span class="panel-room">রুম: <strong id="gameRoomCode"></strong></span>
-      </div>
-      <p id="bankStock" class="bank-stock"></p>
-      <!-- My pending trade offer (waiting for the other player) -->
-      <div id="outgoingTrade" class="outgoing-trade" hidden></div>
       <p id="connectionBanner" class="connection-banner" hidden>সংযোগ বিচ্ছিন্ন, আবার চেষ্টা হচ্ছে…</p>
-      <ul id="gamePlayers" class="game-players"></ul>
 
-      <h2 class="log-title">ঘটনা</h2>
-      <ul id="eventLog" class="event-log"></ul>
+      <div class="tab-players">
+        <div class="panel-header">
+          <h2>খেলোয়াড়</h2>
+          <span class="panel-room">রুম: <strong id="gameRoomCode"></strong></span>
+        </div>
+        <div class="panel-subheader">
+          <p id="bankStock" class="bank-stock"></p>
+          <!-- Display only: Bengali digits (০-৯) everywhere on screen -->
+          <label class="digits-switch">
+            <input id="digitsToggle" type="checkbox">
+            <span class="digits-switch-track"></span>
+            বাংলা সংখ্যা
+          </label>
+        </div>
+        <!-- My pending trade offer (waiting for the other player) -->
+        <div id="outgoingTrade" class="outgoing-trade" hidden></div>
+        <ul id="gamePlayers" class="game-players"></ul>
 
-      <!-- DEBUG_DICE=1 + host only: set a player's cash -->
-      <div id="debugMoney" class="debug-money" hidden>
-        <span>টাকা সেট করুন:</span>
-        <select id="debugMoneyPlayer" aria-label="খেলোয়াড়"></select>
-        <input id="debugMoneyAmount" type="number" min="0" step="10" value="0" aria-label="টাকা">
-        <button id="debugMoneySet" type="button">সেট</button>
+        <!-- DEBUG_DICE=1 + host only: set a player's cash -->
+        <div id="debugMoney" class="debug-money" hidden>
+          <span>টাকা সেট করুন:</span>
+          <select id="debugMoneyPlayer" aria-label="খেলোয়াড়"></select>
+          <input id="debugMoneyAmount" type="number" min="0" step="10" value="0" aria-label="টাকা">
+          <button id="debugMoneySet" type="button">সেট</button>
+        </div>
+
+        <button id="resignBtn" type="button" class="resign-btn">খেলা ছেড়ে দিন</button>
       </div>
 
-      <button id="resignBtn" type="button" class="resign-btn">খেলা ছেড়ে দিন</button>
+      <div class="tab-log">
+        <h2 class="log-title">ঘটনা</h2>
+        <ul id="eventLog" class="event-log"></ul>
+      </div>
     </aside>
   </div>
 
@@ -113,6 +133,9 @@
       <p id="decisionError" class="action-error" role="alert"></p>
     </div>
   </section>
+
+  <!-- Short notifications for things that concern me -->
+  <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <!-- Drawn ভাগ্য / সমাজকল্যাণ card, shown to everyone for a few seconds -->
   <div id="cardModal" class="card-modal" hidden aria-live="polite">
@@ -231,6 +254,7 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="js/common.js"></script>
   <script src="js/icons.js"></script>
+  <script src="js/digits.js"></script>
   <script src="js/board.js"></script>
   <script src="js/game.js"></script>
 </body>

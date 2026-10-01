@@ -18,6 +18,19 @@ const codeInput = document.getElementById('codeInput');
 const createBtn = document.getElementById('createBtn');
 const joinBtn = document.getElementById('joinBtn');
 const homeError = document.getElementById('homeError');
+const resumeBox = document.getElementById('resumeBox');
+const resumeText = document.getElementById('resumeText');
+const resumeLink = document.getElementById('resumeLink');
+const resumeForget = document.getElementById('resumeForget');
+
+// "নতুন খেলা শুরু করুন": forget the saved seat (the game itself goes on)
+resumeForget.addEventListener('click', () => {
+  clearSession();
+  resumeBox.hidden = true;
+});
+
+// Bengali digits preference (switch is on the game page)
+setupDigitsToggle(null);
 
 const roomCodeEl = document.getElementById('roomCode');
 const copyCodeBtn = document.getElementById('copyCodeBtn');
@@ -181,6 +194,21 @@ socket.on('connect', async () => {
     return;
   }
 
+  // First a read-only check: is my seat in a running game? Then the home
+  // page offers "চলমান খেলায় ফিরে যান" (it does not take the seat here).
+  const check = await request(socket, 'room:check', session);
+  if (check.ok && check.status !== 'lobby') {
+    resumeText.textContent = check.status === 'finished'
+      ? `রুম ${check.code}-এর খেলা শেষ হয়েছে (আপনি: ${check.name})।`
+      : `রুম ${check.code}-এ আপনার একটি খেলা চলছে (আপনি: ${check.name})।`;
+    resumeLink.textContent = check.status === 'finished' ? 'ফলাফল দেখুন' : 'চলমান খেলায় ফিরে যান';
+    resumeLink.href = 'game.html?room=' + encodeURIComponent(check.code);
+    resumeBox.hidden = false;
+    showView('home');
+    return;
+  }
+
+  // Lobby: take my seat again (same as before)
   const response = await request(socket, 'room:resume', session);
   if (response.ok) {
     enterRoom(response);
@@ -192,6 +220,14 @@ socket.on('connect', async () => {
     showView('home');
     homeError.textContent = 'আগের রুমে ফেরা যায়নি: ' + response.error;
   }
+});
+
+// The same seat was opened in another tab: this one stops.
+socket.on('session:replaced', () => {
+  roomState = null;
+  myPlayerId = null;
+  showView('home');
+  homeError.textContent = 'এই রুম অন্য ট্যাবে খোলা হয়েছে। এখানে আবার খুলতে পেজটি রিফ্রেশ করুন।';
 });
 
 // Lost connection: show the "connecting" card until we are back.

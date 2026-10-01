@@ -21,6 +21,13 @@
     <h1>বাংলা মনোপলি</h1>
     <p class="subtitle">বন্ধুদের সাথে অনলাইনে খেলুন</p>
 
+    <!-- Shown when my saved seat is in a game that is still running -->
+    <div id="resumeBox" class="resume-box" hidden>
+      <p id="resumeText"></p>
+      <a id="resumeLink" class="resume-link" href="#">চলমান খেলায় ফিরে যান</a>
+      <button id="resumeForget" type="button" class="secondary small">নতুন খেলা শুরু করুন</button>
+    </div>
+
     <form id="homeForm" novalidate>
       <label for="nameInput">আপনার নাম</label>
       <input id="nameInput" type="text" maxlength="20" autocomplete="nickname" placeholder="যেমন: রহিম">
@@ -74,6 +81,7 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="js/common.js"></script>
   <script src="js/icons.js"></script>
+  <script src="js/digits.js"></script>
   <script src="js/home.js"></script>
 </body>
 </html>

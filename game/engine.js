@@ -141,6 +141,10 @@ const MSG = {
   cannotResignNow: 'এখন খেলা ছাড়া যাবে না — চলমান সিদ্ধান্ত, কার্ড বা নিলাম শেষ হোক।',
   cannotResignDebts: 'অন্য কারও দেনা মেটানো শেষ হলে চেষ্টা করুন।',
   notHost: 'শুধু হোস্ট এটি করতে পারেন।',
+  playerConnected: 'এই খেলোয়াড় সংযুক্ত আছেন।',
+  waitLonger: (seconds) => `আরও ${seconds} সেকেন্ড অপেক্ষা করুন।`,
+  notTheirTurn: 'এখন এই খেলোয়াড়ের পালা নয়।',
+  cannotSkipNow: 'এখন পালা বাদ দেওয়া যাবে না — চলমান কার্ড, নিলাম বা দেনা শেষ হোক।',
   badAmount: 'টাকার পরিমাণ ঠিক নেই।'
 };
 
@@ -477,7 +481,9 @@ function autoRoll(room) {
 
 // How long clients need to animate a move (must match public/js/game.js).
 function moveAnimationMs(move) {
-  return move.path.length * config.moveStepMs + (move.jumpTo !== null ? config.moveJumpPauseMs : 0);
+  return (move.byDice ? config.diceAnimationMs : 0) +
+    move.path.length * config.moveStepMs +
+    (move.jumpTo !== null ? config.moveJumpPauseMs : 0);
 }
 
 // ---------- Rolling and moving ----------
@@ -504,6 +510,8 @@ function performRoll(room, player, dice, isDebug) {
   const total = dice[0] + dice[1];
   const isDouble = dice[0] === dice[1];
   game.dice = dice;
+  game.diceRollId = (game.diceRollId || 0) + 1; // clients tumble the dice once per roll
+  game.movingByDice = true; // the next recorded move starts after the dice tumble
   game.extraRoll = false;
 
   addLog(room,
@@ -545,6 +553,7 @@ function rollInJail(room, player, total, isDouble) {
     if (player.jailTurns < config.maxJailTurns) {
       addLog(room, `${player.name}-এর জোড়া পড়েনি (${player.jailTurns}/${config.maxJailTurns})। হাজতেই থাকলেন।`);
       game.lastMove = null;
+      game.movingByDice = false;
       waitThenContinue(room); // turn ends, no movement
       return;
     }
@@ -599,7 +608,8 @@ function finishMove(room, player, from, path) {
     return;
   }
 
-  game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path, jumpTo: null };
+  game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path, jumpTo: null, byDice: Boolean(game.movingByDice) };
+  game.movingByDice = false;
   startMoving(room);
 }
 
@@ -607,7 +617,8 @@ function finishMove(room, player, from, path) {
 function jumpToJail(room, player, path, from = player.position) {
   const game = room.game;
   sendToJail(room, player);
-  game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path, jumpTo: JAIL_INDEX };
+  game.lastMove = { id: ++game.moveCounter, playerId: player.id, from, path, jumpTo: JAIL_INDEX, byDice: Boolean(game.movingByDice) };
+  game.movingByDice = false;
   startMoving(room);
 }
 
@@ -2009,6 +2020,51 @@ function endGame(room, winner) {
   room.status = 'finished';
 }
 
+// ---------- Host controls for a disconnected player (Step 10) ----------
+// CLAUDE.md default 8: after disconnectSkipAfterMs the host may skip their
+// turn; after disconnectBankruptAfterMs the host may make them bankrupt
+// (to the bank). The server checks the host and the timings.
+
+function requireHostOverDisconnected(room, host, targetId, waitMs) {
+  requirePlaying(room);
+  if (room.hostId !== host.id) fail(MSG.notHost);
+  const target = playerById(room, targetId);
+  if (!target || target.bankrupt) fail(MSG.tradeNoTarget);
+  if (target.connected || !target.disconnectedAt) fail(MSG.playerConnected);
+  const waited = Date.now() - target.disconnectedAt;
+  if (waited < waitMs) fail(MSG.waitLonger(Math.ceil((waitMs - waited) / 1000)));
+  return target;
+}
+
+// "পালা বাদ দিন": end the disconnected current player's turn now.
+function hostSkipTurn(room, host, targetId) {
+  const target = requireHostOverDisconnected(room, host, targetId, config.disconnectSkipAfterMs);
+  const game = room.game;
+  if (currentPlayer(room) !== target) fail(MSG.notTheirTurn);
+  const calm = ['roll', 'moving', 'buy', 'ownerAuction'].includes(game.phase);
+  if (!calm || isFlowPaused(room)) fail(MSG.cannotSkipNow);
+
+  // A buy / owner-auction decision simply lapses (no purchase, keep).
+  game.pendingDecision = null;
+  game.landingModifier = null;
+  game.extraRoll = false;
+  addLog(room, `হোস্ট ${target.name}-এর পালা বাদ দিলেন (সংযোগ বিচ্ছিন্ন)।`);
+  advanceTurn(room);
+}
+
+// "দেউলিয়া করুন": a long-disconnected player goes bankrupt to the bank.
+function hostBankruptPlayer(room, host, targetId) {
+  const target = requireHostOverDisconnected(room, host, targetId, config.disconnectBankruptAfterMs);
+  const game = room.game;
+  const othersInDebt = game.debts.some((d) => d.playerId !== target.id);
+  if (othersInDebt) fail(MSG.cannotResignDebts);
+  if (!debtOf(room, target) && game.phase !== 'roll' && game.phase !== 'moving') fail(MSG.cannotResignNow);
+  pauseFlow(room);
+  addLog(room, `হোস্ট সংযোগ বিচ্ছিন্ন ${target.name}-কে দেউলিয়া করলেন।`);
+  goBankrupt(room, target, 'bank', null);
+  resumeFlow(room);
+}
+
 // DEBUG_DICE=1 only: the host sets any player's cash (for testing).
 function debugSetMoney(room, player, targetId, amount) {
   requirePlaying(room);
@@ -2042,6 +2098,7 @@ function publicGame(room) {
     phase: game.phase,
     doublesCount: game.doublesCount,
     dice: game.dice,
+    diceRollId: game.diceRollId || 0, // changes with every roll (dice animation)
     lastMove: game.lastMove,
     rollDeadline: game.rollDeadline, // clients show a countdown to this
     properties,
@@ -2076,6 +2133,8 @@ module.exports = {
   payDebt,
   declareBankruptcy,
   resignGame,
+  hostSkipTurn,
+  hostBankruptPlayer,
   debugSetMoney,
   proposeTrade,
   acceptTrade,

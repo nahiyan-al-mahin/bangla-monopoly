@@ -24,6 +24,9 @@ const ICON_SHAPES = {
     '<path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.5v.7"/><path d="M12 17h.01"/>',
   community: // সমাজকল্যাণ: heart
     '<path d="M12 20s-7.5-4.4-7.5-10A4.2 4.2 0 0 1 12 7.6 4.2 4.2 0 0 1 19.5 10c0 5.6-7.5 10-7.5 10z"/>',
+  offline: // disconnected player (wifi with a slash)
+    '<path d="M5 12.5a10 10 0 0 1 4-2.1"/><path d="M2 8.8a15 15 0 0 1 4.5-2.9"/>' +
+    '<path d="M13.5 6a15 15 0 0 1 8.5 2.8"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M12 20h.01"/><path d="M3 3l18 18"/>',
   arrow: // শুরু: points left, the way players move from শুরু (bottom-right corner)
     '<path d="M20 12H5"/><path d="M11 6l-6 6 6 6"/>',
 

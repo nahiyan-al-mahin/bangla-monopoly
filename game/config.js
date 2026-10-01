@@ -33,6 +33,8 @@ const config = {
   // jail) before starting TURN_END_DELAY_MS. Sent to clients via /api/setup.
   moveStepMs: 180,
   moveJumpPauseMs: 540,
+  // Dice tumble animation before the piece walks (the server waits for it too)
+  diceAnimationMs: 600,
   maxDoublesBeforeJail: 3, // 3 doubles in a row -> straight to jail
   logLimit: 50,            // event log keeps the latest 50 entries
   // Testing helper: start the server with DEBUG_DICE=1 to let the current
@@ -99,6 +101,7 @@ const config = {
   // and if they were the host, the next player in seat order becomes host.
   lobbyDisconnectGraceMs: 15 * 1000,
   disconnectSkipAfterMs: 60 * 1000,         // host may skip turn after 60s
+  hostTransferAfterMs: 60 * 1000,           // host away 60s in a game -> next connected player is host
   disconnectBankruptAfterMs: 3 * 60 * 1000, // host may bankrupt after 3 min
   emptyRoomDeleteAfterMs: 10 * 60 * 1000    // empty room removed after 10 min
 };

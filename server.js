@@ -74,6 +74,9 @@ app.get('/api/setup', (req, res) => {
     auctionSeconds: config.AUCTION_SECONDS,
     bidIncrements: config.auction.bidIncrements,
     moveStepMs: config.moveStepMs,          // piece animation speed
+    diceAnimationMs: config.diceAnimationMs, // dice tumble before the walk
+    disconnectSkipAfterMs: config.disconnectSkipAfterMs,
+    disconnectBankruptAfterMs: config.disconnectBankruptAfterMs,
     moveJumpPauseMs: config.moveJumpPauseMs // pause before jumping to jail
   });
 });
@@ -125,7 +128,20 @@ io.on('connection', (socket) => {
     socket.join(room.code);
     socket.data.code = room.code;
     socket.data.playerToken = player.token;
+
+    // Same seat already open in another tab/device: the newest connection
+    // wins. The old tab is told why and disconnected (it does not
+    // reconnect by itself).
+    const oldSocketId = player.socketId;
     rooms.connectPlayer(room, player, socket.id);
+    if (oldSocketId && oldSocketId !== socket.id) {
+      const oldSocket = io.sockets.sockets.get(oldSocketId);
+      if (oldSocket) {
+        oldSocket.data.code = null; // its disconnect must not mark the seat offline
+        oldSocket.emit('session:replaced');
+        oldSocket.disconnect(true);
+      }
+    }
   }
 
   // What create/join/resume send back to the player.
@@ -159,6 +175,9 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
     return sessionReply(room, player);
   });
+
+  // Home page: is my stored seat still in a running room? (read-only)
+  handle(socket, 'room:check', (request) => rooms.checkSeat(request.code, request.playerToken));
 
   // Page loaded or refreshed: "I already have a seat, here is my token".
   handle(socket, 'room:resume', (request) => {
@@ -242,6 +261,19 @@ io.on('connection', (socket) => {
   handle(socket, 'game:resign', (request) => {
     const { room, player } = findPlayer(request);
     engine.resignGame(room, player);
+    broadcastRoom(room);
+  });
+
+  // Host controls for a disconnected player (timings checked by the engine)
+  handle(socket, 'host:skipTurn', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.hostSkipTurn(room, player, request.targetId);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'host:bankrupt', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.hostBankruptPlayer(room, player, request.targetId);
     broadcastRoom(room);
   });
 
