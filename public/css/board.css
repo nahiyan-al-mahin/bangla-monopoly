@@ -1523,3 +1523,265 @@ body {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
 }
+
+/* =========================================================
+   TRADING (Step 8)
+   ========================================================= */
+
+/* Other players' cards: property toggle + "বাণিজ্য" in one row, chips below */
+.game-player-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.game-player-actions .mini-chips {
+  order: 3;
+  flex-basis: 100%;
+}
+
+.trade-btn {
+  margin: var(--space-1) 0 0 auto; /* pushed to the right */
+  padding: 2px 12px;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.trade-btn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.trade-btn:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-color: var(--color-border);
+  cursor: not-allowed;
+}
+
+/* My pending offer, in the right panel */
+.outgoing-trade {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  padding: var(--space-1);
+  font-size: var(--fs-sm);
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-md);
+}
+
+.outgoing-cancel {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+/* ---------- Trade builder (dialog) ---------- */
+
+.trade-dialog {
+  width: min(96vw, 640px);
+  max-height: calc(100dvh - 2 * var(--space-2));
+  overflow-y: auto;
+}
+
+.trade-head {
+  padding: var(--space-2) var(--space-2) 0;
+  text-align: center;
+}
+
+.trade-head h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.trade-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+/* Phones: one column (give, then receive) */
+@media (max-width: 560px) {
+  .trade-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.trade-col {
+  min-width: 0;
+  padding: 12px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.trade-col h3 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.trade-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-half);
+}
+
+.trade-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-half);
+  margin: 0;
+  padding: 3px 8px 3px 4px;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.trade-chip-color {
+  width: 10px;
+  height: 10px;
+  background: var(--chip-color);
+  border-radius: 50%;
+}
+
+.trade-chip.selected {
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.trade-chip.mortgaged:not(.selected) {
+  opacity: 0.7;
+}
+
+.trade-chip-tag {
+  padding: 0 4px;
+  font-size: 0.65rem;
+  color: #fff;
+  background: var(--mortgage-tag-bg);
+  border-radius: var(--radius-pill);
+}
+
+.trade-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.trade-blocked {
+  margin: var(--space-half) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.trade-blocked:empty {
+  display: none;
+}
+
+.trade-none {
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.trade-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  font-size: var(--fs-sm);
+}
+
+.trade-field input {
+  width: 96px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: var(--fs-md); /* 16px: no zoom on iPhone */
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.trade-summary {
+  margin: 0 var(--space-2);
+  padding: 12px;
+  font-size: var(--fs-sm);
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-md);
+}
+
+.trade-summary p {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.trade-fee-line,
+.trade-fees {
+  font-weight: 600;
+  color: var(--color-danger);
+}
+
+.trade-error {
+  margin: var(--space-1) var(--space-2) 0;
+}
+
+.trade-dialog .manage-footer {
+  padding-top: var(--space-2);
+}
+
+/* ---------- Incoming offer panel ---------- */
+
+.trade-columns-compact {
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+  text-align: left;
+}
+
+.trade-list {
+  margin: 0;
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.trade-fees {
+  margin: var(--space-half) 0 0;
+  font-size: var(--fs-sm);
+}
+
+.trade-fees:empty {
+  display: none;
+}
+
+/* Wide screens: bottom-right corner, so it never covers a buy/auction
+   panel in the middle of the screen. Phones: bottom sheet like the others. */
+@media (min-width: 900px) {
+  .incoming-trade {
+    top: auto;
+    bottom: var(--space-2);
+    left: auto;
+    right: var(--space-2);
+    transform: none;
+  }
+}

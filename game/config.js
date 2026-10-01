@@ -39,6 +39,11 @@ const config = {
   // player choose the dice values. Without it, client dice are ignored.
   debugDice: process.env.DEBUG_DICE === '1',
 
+  // --- Trading ---
+  // Time the receiver has to accept a trade offer. Timeout = reject.
+  // Trade timers are separate from the turn timer (trading never pauses a turn).
+  TRADE_RESPONSE_SECONDS: 30,
+
   // --- Cards (ভাগ্য / সমাজকল্যাণ) ---
   // How long the drawn card is shown to everyone before its effect happens.
   CARD_SHOW_MS: 3500,

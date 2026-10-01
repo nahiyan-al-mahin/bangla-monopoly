@@ -31,6 +31,7 @@
 //      doubles -> same player, phase 'roll' with a new timer
 //      otherwise -> next player, phase 'roll' with a new timer
 //
+// Trading (Step 8) has its own timers and never changes the turn.
 // Buildings and mortgages (Step 7) are not part of the turn: any player may
 // build/sell/mortgage at any time except during an auction (see below).
 //
@@ -110,7 +111,23 @@ const MSG = {
   bankHousesForHotel: (n) => `হোটেল বিক্রি করলে 4টি বাড়ি ফেরত লাগে, কিন্তু ব্যাংকে আছে ${n}টি। আগে কোথাও বাড়ি বিক্রি করুন।`,
   alreadyMortgaged: 'ইতিমধ্যে বন্ধক রাখা',
   notMortgaged: 'বন্ধক রাখা নেই',
-  sellBuildingsFirst: 'আগে এই রঙের সব বাড়ি/হোটেল বিক্রি করুন'
+  sellBuildingsFirst: 'আগে এই রঙের সব বাড়ি/হোটেল বিক্রি করুন',
+  // Trading
+  tradeAuction: 'নিলাম চলার সময় বাণিজ্য করা যাবে না।',
+  tradeNoTarget: 'এই খেলোয়াড়কে পাওয়া যায়নি।',
+  tradeSelf: 'নিজের সাথে বাণিজ্য করা যায় না।',
+  tradeOnePending: 'আপনার একটি প্রস্তাব ইতিমধ্যে অপেক্ষায় আছে।',
+  tradeEmpty: 'কিছু না দিয়ে বা না চেয়ে প্রস্তাব পাঠানো যায় না।',
+  tradeBadData: 'প্রস্তাবটি ঠিক নেই।',
+  tradeBuildings: 'আগে এই রঙের সব বাড়ি বিক্রি করুন',
+  tradeInDecision: 'এই সম্পত্তি নিয়ে এখন সিদ্ধান্ত বা নিলাম চলছে',
+  tradeNotOwned: (square, name) => `${square} এখন আর ${name}-এর নয়।`,
+  tradeCashTooMuch: (name) => `${name}-এর কাছে এত টাকা নেই।`,
+  tradeJailCards: (name) => `${name}-এর কাছে এতগুলো জেল-মুক্তি কার্ড নেই।`,
+  tradeCantAfford: (name, total) => `${name} মোট ৳${total} (টাকা + বন্ধকী ফি) দিতে পারবেন না।`,
+  tradePlayerGone: 'একজন খেলোয়াড় আর খেলায় নেই।',
+  tradeNotFound: 'এই প্রস্তাবটি আর নেই।',
+  tradeNotYours: 'এই প্রস্তাবটি আপনার জন্য নয়।'
 };
 
 // server.js registers a function here. Timers change the game without any
@@ -164,6 +181,9 @@ function initGame(room) {
     //   { id, deck, deckName, text, effect, until }
     card: null,
     cardCounter: 0,
+    // Pending trade offers (see "Trading"), and an id counter for them
+    trades: [],
+    tradeCounter: 0,
     // Set by "nearest railroad/utility" cards for the next landing only:
     //   'railroadDouble' | 'utility10' | null
     landingModifier: null,
@@ -181,6 +201,7 @@ function initGame(room) {
 function stopGame(room) {
   if (!room.game) return;
   clearGameTimer(room);
+  stopAllTrades(room); // trade offer timers too
   room.game.stopped = true;
   room.game.rollDeadline = null;
 }
@@ -1282,6 +1303,247 @@ function manageOptions(room, index) {
   return options;
 }
 
+// ---------- Trading (Step 8) ----------
+// Any player may offer a trade to another player at any time, except while
+// an auction is running. One outgoing pending offer per player.
+//
+// An offer: { id, fromId, toId, give, get, deadline }
+//   give = what the proposer gives, get = what the proposer wants
+//   each side: { properties: [square indexes], cash, jailFree (count) }
+//
+// Everything is checked when the offer is made, again when it is accepted,
+// and after every change to the game (cleanupTrades): an offer that is no
+// longer valid is cancelled automatically.
+//
+// Mortgaged properties stay mortgaged; whoever RECEIVES one pays the bank
+// 10% of its mortgage value (rounded up) when the trade completes.
+//
+// Trade timers are separate from the turn timer: trading never changes
+// whose turn it is and never pauses the turn.
+
+const tradeTimers = new Map(); // trade id -> setTimeout handle (not sent to clients)
+
+// Why this square can't be traded right now, or null.
+function propertyTradeProblem(room, index) {
+  const square = SQUARES[index];
+  if (square.group && groupHasBuildings(room, square.group)) return MSG.tradeBuildings;
+  const decision = room.game.pendingDecision;
+  if (decision && decision.squareIndex === index) return MSG.tradeInDecision;
+  return null;
+}
+
+// Mortgage fee the receiver pays for these squares (10% of mortgage value each).
+function mortgageFee(room, indexes) {
+  return indexes.reduce((sum, index) => {
+    const state = room.game.properties[index];
+    if (!state || !state.mortgaged) return sum;
+    return sum + Math.ceil(mortgageValueOf(SQUARES[index]) * config.mortgageInterestRate);
+  }, 0);
+}
+
+// Read one side of an offer from the client: { properties, cash, jailFree }.
+function readTradeSide(raw) {
+  const side = raw && typeof raw === 'object' ? raw : {};
+  const properties = Array.isArray(side.properties) ? side.properties : [];
+  const cash = side.cash === undefined ? 0 : side.cash;
+  const jailFree = side.jailFree === undefined ? 0 : side.jailFree;
+  const valid =
+    properties.length <= BOARD_SIZE &&
+    properties.every((i) => Number.isInteger(i) && i >= 0 && i < BOARD_SIZE) &&
+    new Set(properties).size === properties.length &&
+    Number.isInteger(cash) && cash >= 0 &&
+    Number.isInteger(jailFree) && jailFree >= 0;
+  if (!valid) fail(MSG.tradeBadData);
+  return { properties: properties.slice().sort((a, b) => a - b), cash, jailFree };
+}
+
+// Can "player" give this side? Returns a Bangla reason or null.
+// (Cash is checked against what the player has right now.)
+function tradeSideProblem(room, player, side) {
+  for (const index of side.properties) {
+    const square = SQUARES[index];
+    const state = room.game.properties[index];
+    if (!BUYABLE_TYPES.includes(square.type) || !state || state.ownerId !== player.id) {
+      return MSG.tradeNotOwned(square.name, player.name);
+    }
+    const problem = propertyTradeProblem(room, index);
+    if (problem) return `${square.name}: ${problem}`;
+  }
+  if (side.cash > player.money) return MSG.tradeCashTooMuch(player.name);
+  if (side.jailFree > player.jailFreeCards.length) return MSG.tradeJailCards(player.name);
+  return null;
+}
+
+// Is the whole offer still valid? (Not the "can they afford the fees"
+// check, which only happens at acceptance.)
+function tradeProblem(room, trade) {
+  const from = playerById(room, trade.fromId);
+  const to = playerById(room, trade.toId);
+  if (!from || !to) return MSG.tradePlayerGone;
+  return tradeSideProblem(room, from, trade.give) || tradeSideProblem(room, to, trade.get);
+}
+
+function isEmptySide(side) {
+  return side.properties.length === 0 && side.cash === 0 && side.jailFree === 0;
+}
+
+// Short Bangla list of one side, e.g. "নোয়াখালী (বন্ধক), ৳100, 1টি জেল-মুক্তি কার্ড"
+function describeTradeSide(room, side) {
+  const parts = side.properties.map((index) => {
+    const state = room.game.properties[index];
+    return SQUARES[index].name + (state && state.mortgaged ? ' (বন্ধক)' : '');
+  });
+  if (side.cash > 0) parts.push(`৳${side.cash}`);
+  if (side.jailFree > 0) parts.push(`${side.jailFree}টি জেল-মুক্তি কার্ড`);
+  return parts.length ? parts.join(', ') : 'কিছু না';
+}
+
+function findTrade(room, tradeId) {
+  const trade = room.game.trades.find((t) => t.id === tradeId);
+  if (!trade) fail(MSG.tradeNotFound);
+  return trade;
+}
+
+// Remove an offer and stop its timer.
+function removeTrade(room, trade) {
+  clearTimeout(tradeTimers.get(trade.id));
+  tradeTimers.delete(trade.id);
+  room.game.trades = room.game.trades.filter((t) => t !== trade);
+}
+
+function proposeTrade(room, player, request) {
+  requirePlaying(room);
+  if (room.game.phase === 'auction') fail(MSG.tradeAuction);
+  const to = playerById(room, request && request.toId);
+  if (!to) fail(MSG.tradeNoTarget);
+  if (to === player) fail(MSG.tradeSelf);
+  if (room.game.trades.some((t) => t.fromId === player.id)) fail(MSG.tradeOnePending);
+
+  const give = readTradeSide(request.give);
+  const get = readTradeSide(request.get);
+  if (isEmptySide(give) && isEmptySide(get)) fail(MSG.tradeEmpty);
+
+  const trade = {
+    id: ++room.game.tradeCounter,
+    fromId: player.id,
+    toId: to.id,
+    give,
+    get,
+    deadline: Date.now() + config.TRADE_RESPONSE_SECONDS * 1000
+  };
+  const problem = tradeProblem(room, trade);
+  if (problem) fail(problem);
+
+  room.game.trades.push(trade);
+  addLog(room, `${player.name} ${to.name}-কে বাণিজ্যের প্রস্তাব দিলেন।`);
+
+  // No answer in time = rejected. (Own timer: the turn timer is not touched.)
+  const game = room.game;
+  tradeTimers.set(trade.id, setTimeout(() => {
+    if (game.stopped || room.game !== game || !game.trades.includes(trade)) return;
+    removeTrade(room, trade);
+    addLog(room, `${to.name} সময়মতো উত্তর দেননি — ${player.name}-এর বাণিজ্যের প্রস্তাব বাতিল হলো।`);
+    onGameChanged(room);
+  }, config.TRADE_RESPONSE_SECONDS * 1000));
+}
+
+function cancelTrade(room, player, tradeId) {
+  requirePlaying(room);
+  const trade = findTrade(room, tradeId);
+  if (trade.fromId !== player.id) fail(MSG.tradeNotYours);
+  removeTrade(room, trade);
+  addLog(room, `${player.name} বাণিজ্যের প্রস্তাব ফিরিয়ে নিলেন।`);
+}
+
+function rejectTrade(room, player, tradeId) {
+  requirePlaying(room);
+  const trade = findTrade(room, tradeId);
+  if (trade.toId !== player.id) fail(MSG.tradeNotYours);
+  removeTrade(room, trade);
+  addLog(room, `${player.name} ${playerById(room, trade.fromId).name}-এর বাণিজ্যের প্রস্তাব প্রত্যাখ্যান করলেন।`);
+}
+
+// The receiver accepts: check everything again, then swap.
+// If the trade is no longer possible it is cancelled (logged) and the
+// Bangla reason is sent back to the receiver.
+function acceptTrade(room, player, tradeId) {
+  requirePlaying(room);
+  const trade = findTrade(room, tradeId);
+  if (trade.toId !== player.id) fail(MSG.tradeNotYours);
+  if (room.game.phase === 'auction') fail(MSG.tradeAuction); // stays pending
+
+  const from = playerById(room, trade.fromId);
+  const to = player;
+  let problem = tradeProblem(room, trade);
+
+  // Each side must afford the cash it gives + the fees for mortgaged
+  // properties it receives (incoming cash does not count).
+  const feeFrom = mortgageFee(room, trade.get.properties); // proposer receives "get"
+  const feeTo = mortgageFee(room, trade.give.properties);  // receiver receives "give"
+  if (!problem && trade.give.cash + feeFrom > from.money) problem = MSG.tradeCantAfford(from.name, trade.give.cash + feeFrom);
+  if (!problem && trade.get.cash + feeTo > to.money) problem = MSG.tradeCantAfford(to.name, trade.get.cash + feeTo);
+
+  if (problem) {
+    removeTrade(room, trade);
+    addLog(room, `বাণিজ্য বাতিল (${from.name} ও ${to.name}): ${problem}`);
+    fail(problem);
+  }
+
+  // Log the full contents before anything moves (names + mortgage marks).
+  const fromText = describeTradeSide(room, trade.give);
+  const toText = describeTradeSide(room, trade.get);
+
+  // Swap properties (mortgaged ones stay mortgaged; no buildings possible)
+  trade.give.properties.forEach((index) => { room.game.properties[index].ownerId = to.id; });
+  trade.get.properties.forEach((index) => { room.game.properties[index].ownerId = from.id; });
+
+  // Cash
+  from.money -= trade.give.cash; to.money += trade.give.cash;
+  to.money -= trade.get.cash; from.money += trade.get.cash;
+
+  // Jail-free cards (the actual cards move, so they return to their own deck later)
+  for (let i = 0; i < trade.give.jailFree; i++) to.jailFreeCards.push(from.jailFreeCards.shift());
+  for (let i = 0; i < trade.get.jailFree; i++) from.jailFreeCards.push(to.jailFreeCards.shift());
+
+  removeTrade(room, trade);
+  addLog(room, `বাণিজ্য সম্পন্ন: ${from.name} দিলেন — ${fromText}; ${to.name} দিলেন — ${toText}।`);
+
+  // Mortgage fees to the bank
+  if (feeFrom > 0) { from.money -= feeFrom; addLog(room, `${from.name} বন্ধকী সম্পত্তির ফি ৳${feeFrom} ব্যাংককে দিলেন।`); }
+  if (feeTo > 0) { to.money -= feeTo; addLog(room, `${to.name} বন্ধকী সম্পত্তির ফি ৳${feeTo} ব্যাংককে দিলেন।`); }
+}
+
+// After any change: cancel offers that are no longer valid
+// (a property changed owner or got buildings, cash or cards are gone, ...).
+function cleanupTrades(room) {
+  if (!room.game || room.game.stopped) return;
+  room.game.trades.slice().forEach((trade) => {
+    const problem = tradeProblem(room, trade);
+    if (!problem) return;
+    const from = playerById(room, trade.fromId);
+    const to = playerById(room, trade.toId);
+    removeTrade(room, trade);
+    addLog(room, `বাণিজ্য বাতিল${from && to ? ` (${from.name} → ${to.name})` : ''}: ${problem}`);
+  });
+}
+
+// Offers as sent to clients, with the mortgage fees each side would pay.
+function publicTrades(room) {
+  return room.game.trades.map((trade) => ({
+    ...trade,
+    feeFrom: mortgageFee(room, trade.get.properties),
+    feeTo: mortgageFee(room, trade.give.properties)
+  }));
+}
+
+function stopAllTrades(room) {
+  if (!room.game) return;
+  room.game.trades.forEach((trade) => {
+    clearTimeout(tradeTimers.get(trade.id));
+    tradeTimers.delete(trade.id);
+  });
+}
+
 // ---------- What clients may see ----------
 
 function publicGame(room) {
@@ -1293,7 +1555,8 @@ function publicGame(room) {
     properties[index] = {
       ...game.properties[index],
       rentNow: currentRent(room, Number(index)),
-      options: manageOptions(room, Number(index)) // what the owner may do now
+      options: manageOptions(room, Number(index)), // what the owner may do now
+      tradeBlock: propertyTradeProblem(room, Number(index)) // why it can't be traded, or null
     };
   });
 
@@ -1308,6 +1571,7 @@ function publicGame(room) {
     pendingDecision: game.pendingDecision,
     card: game.card, // the card being shown right now, or null
     bank: game.bank, // houses/hotels left in the bank
+    trades: publicTrades(room), // pending trade offers (with mortgage fees)
     serverTime: Date.now(),          // lets clients correct for clock differences
     log: game.log
   };
@@ -1327,6 +1591,11 @@ module.exports = {
   sellHotel,
   mortgageProperty,
   unmortgageProperty,
+  proposeTrade,
+  acceptTrade,
+  rejectTrade,
+  cancelTrade,
+  cleanupTrades,
   buyProperty,
   declineProperty,
   startOwnerAuction,

@@ -68,6 +68,8 @@ app.get('/api/setup', (req, res) => {
     jailFine: config.jailFine,
     buyDecisionSeconds: config.BUY_DECISION_SECONDS,
     ownerAuctionDecisionSeconds: config.OWNER_AUCTION_DECISION_SECONDS,
+    tradeResponseSeconds: config.TRADE_RESPONSE_SECONDS,
+    mortgageFeeRate: config.mortgageInterestRate, // fee for receiving a mortgaged property
     auctionSeconds: config.AUCTION_SECONDS,
     bidIncrements: config.auction.bidIncrements,
     moveStepMs: config.moveStepMs,          // piece animation speed
@@ -79,6 +81,9 @@ app.get('/api/setup', (req, res) => {
 
 // Send the latest room state to everyone in the room.
 function broadcastRoom(room) {
+  // Trade offers that became invalid (property sold, cash gone, ...) are
+  // cancelled before everyone gets the new state.
+  if (room.game) engine.cleanupTrades(room);
   io.to(room.code).emit('room:state', rooms.publicState(room));
 }
 
@@ -217,6 +222,36 @@ io.on('connection', (socket) => {
   handle(socket, 'debug:nextCard', (request) => {
     const { room, player } = findPlayer(request);
     engine.debugSetNextCard(room, player, request.cardId);
+    broadcastRoom(room);
+  });
+
+  // --- Trading (any player, any time except during an auction) ---
+  handle(socket, 'trade:propose', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.proposeTrade(room, player, request);
+    broadcastRoom(room);
+  });
+
+  // Accept: if the trade is no longer possible the engine cancels it and
+  // throws the reason, so we broadcast in "finally" either way.
+  handle(socket, 'trade:accept', (request) => {
+    const { room, player } = findPlayer(request);
+    try {
+      engine.acceptTrade(room, player, request.tradeId);
+    } finally {
+      broadcastRoom(room);
+    }
+  });
+
+  handle(socket, 'trade:reject', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.rejectTrade(room, player, request.tradeId);
+    broadcastRoom(room);
+  });
+
+  handle(socket, 'trade:cancel', (request) => {
+    const { room, player } = findPlayer(request);
+    engine.cancelTrade(room, player, request.tradeId);
     broadcastRoom(room);
   });
 

@@ -36,6 +36,36 @@ const debugDie2 = document.getElementById('debugDie2');
 const debugCard = document.getElementById('debugCard');
 const bankStock = document.getElementById('bankStock');
 
+// Trading
+const outgoingTrade = document.getElementById('outgoingTrade');
+const tradeDialog = document.getElementById('tradeDialog');
+const tradeTitle = document.getElementById('tradeTitle');
+const tradeGiveChips = document.getElementById('tradeGiveChips');
+const tradeGetChips = document.getElementById('tradeGetChips');
+const tradeGiveBlocked = document.getElementById('tradeGiveBlocked');
+const tradeGetBlocked = document.getElementById('tradeGetBlocked');
+const tradeGiveCash = document.getElementById('tradeGiveCash');
+const tradeGetCash = document.getElementById('tradeGetCash');
+const tradeGiveJail = document.getElementById('tradeGiveJail');
+const tradeGetJail = document.getElementById('tradeGetJail');
+const tradeGiveJailRow = document.getElementById('tradeGiveJailRow');
+const tradeGetJailRow = document.getElementById('tradeGetJailRow');
+const tradeSummary = document.getElementById('tradeSummary');
+const tradeError = document.getElementById('tradeError');
+const tradeSend = document.getElementById('tradeSend');
+const tradeCancel = document.getElementById('tradeCancel');
+const incomingTrade = document.getElementById('incomingTrade');
+const incomingTitle = document.getElementById('incomingTitle');
+const incomingGet = document.getElementById('incomingGet');
+const incomingGive = document.getElementById('incomingGive');
+const incomingFees = document.getElementById('incomingFees');
+const incomingTimerFill = document.getElementById('incomingTimerFill');
+const incomingTimerText = document.getElementById('incomingTimerText');
+const incomingTimer = incomingTimerFill.closest('.decision-timer');
+const incomingAccept = document.getElementById('incomingAccept');
+const incomingReject = document.getElementById('incomingReject');
+const incomingError = document.getElementById('incomingError');
+
 // Manage view (build / sell / mortgage one of my properties)
 const manageDialog = document.getElementById('manageDialog');
 const manageHeader = document.getElementById('manageHeader');
@@ -236,7 +266,11 @@ function renderPlayers(state) {
         '<span class="' + moneyClass + '">' + money(player.money) + '</span>' +
       '</div>' +
       // My own properties are in the "আমার সম্পত্তি" panel, not here.
-      (player.id === myPlayerId ? '' : otherPlayerPropertiesHtml(player.id, state.game.properties));
+      (player.id === myPlayerId ? '' :
+        '<div class="game-player-actions">' +
+          otherPlayerPropertiesHtml(player.id, state.game.properties) +
+          tradeButtonHtml(state, player) +
+        '</div>');
 
     gamePlayers.appendChild(li);
   });
@@ -456,6 +490,248 @@ manageDetails.addEventListener('click', () => {
   if (index !== null) showDetail(index);
 });
 
+// ---------- Trading ----------
+// The server checks everything (again at acceptance). The builder only
+// helps: it shows what can be traded, the mortgage fees, and a preview.
+
+let tradeTargetId = null;        // player I am building an offer for
+const tradeGiveSet = new Set();  // square indexes I give
+const tradeGetSet = new Set();   // square indexes I want
+
+function myOutgoingTrade(state) {
+  return state.game.trades.find((tr) => tr.fromId === myPlayerId) || null;
+}
+
+function myIncomingTrade(state) {
+  return state.game.trades.find((tr) => tr.toId === myPlayerId) || null; // oldest first
+}
+
+// Why I can't start a new offer right now, or null.
+function tradeStartProblem(state) {
+  if (state.game.phase === 'auction') return 'নিলাম চলার সময় বাণিজ্য করা যাবে না';
+  if (myOutgoingTrade(state)) return 'আপনার একটি প্রস্তাব অপেক্ষায় আছে';
+  return null;
+}
+
+function tradeButtonHtml(state, player) {
+  const problem = tradeStartProblem(state);
+  return '<button type="button" class="trade-btn" data-player-id="' + player.id + '"' +
+    (problem ? ' disabled title="' + escapeHtml(problem) + '"' : '') + '>বাণিজ্য</button>';
+}
+
+// Fee for receiving a mortgaged property: 10% of its mortgage value, rounded up.
+function tradeFee(indexes) {
+  return indexes.reduce((sum, index) => {
+    const owned = latestState.game.properties[index];
+    return owned && owned.mortgaged ? sum + Math.ceil(mortgageValue(SQUARES[index]) * setup.mortgageFeeRate) : sum;
+  }, 0);
+}
+
+// "নোয়াখালী (বন্ধক), ৳100, 1টি জেল-মুক্তি কার্ড" or "কিছু না"
+function describeSide(side) {
+  const parts = side.properties.map((index) => {
+    const owned = latestState.game.properties[index];
+    return SQUARES[index].name + (owned && owned.mortgaged ? ' (বন্ধক)' : '');
+  });
+  if (side.cash > 0) parts.push(money(side.cash));
+  if (side.jailFree > 0) parts.push(side.jailFree + 'টি জেল-মুক্তি কার্ড');
+  return parts.length ? parts.join(', ') : 'কিছু না';
+}
+
+// Property chips for one player in the builder. Non-tradable ones are
+// disabled; their reasons are listed under the chips.
+function renderTradeChips(container, blockedEl, ownerId, selected) {
+  const properties = latestState.game.properties;
+  const owned = SQUARES.filter((s) => properties[s.index] && properties[s.index].ownerId === ownerId);
+  container.innerHTML = '';
+  const blockedNotes = [];
+
+  // Drop selections that are no longer possible (sold, built on, ...)
+  [...selected].forEach((index) => {
+    const p = properties[index];
+    if (!p || p.ownerId !== ownerId || p.tradeBlock) selected.delete(index);
+  });
+
+  if (owned.length === 0) {
+    container.innerHTML = '<span class="trade-none">কোনো সম্পত্তি নেই</span>';
+  }
+  owned.forEach((square) => {
+    const state = properties[square.index];
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'trade-chip' + (selected.has(square.index) ? ' selected' : '') + (state.mortgaged ? ' mortgaged' : '');
+    button.style.setProperty('--chip-color', squareColor(square));
+    button.disabled = Boolean(state.tradeBlock);
+    button.innerHTML = '<span class="trade-chip-color"></span>' + escapeHtml(square.name) +
+      (state.mortgaged ? '<span class="trade-chip-tag">বন্ধক</span>' : '');
+    if (state.tradeBlock) {
+      button.title = state.tradeBlock;
+      blockedNotes.push(square.name + ': ' + state.tradeBlock);
+    }
+    button.addEventListener('click', () => {
+      if (selected.has(square.index)) selected.delete(square.index);
+      else selected.add(square.index);
+      renderTradeBuilder();
+    });
+    container.appendChild(button);
+  });
+  blockedEl.textContent = blockedNotes.join(' · ');
+}
+
+// Read a whole-number input, limited to 0..max.
+function readCount(input, max) {
+  const value = Math.floor(Number(input.value) || 0);
+  return Math.max(0, Math.min(value, max));
+}
+
+function currentOffer() {
+  const me = playerById(myPlayerId);
+  const them = playerById(tradeTargetId);
+  return {
+    give: {
+      properties: [...tradeGiveSet].sort((a, b) => a - b),
+      cash: readCount(tradeGiveCash, Math.max(0, me.money)),
+      jailFree: readCount(tradeGiveJail, me.jailFreeCount)
+    },
+    get: {
+      properties: [...tradeGetSet].sort((a, b) => a - b),
+      cash: readCount(tradeGetCash, Math.max(0, them.money)),
+      jailFree: readCount(tradeGetJail, them.jailFreeCount)
+    }
+  };
+}
+
+function openTradeBuilder(playerId) {
+  tradeTargetId = playerId;
+  tradeGiveSet.clear();
+  tradeGetSet.clear();
+  [tradeGiveCash, tradeGetCash, tradeGiveJail, tradeGetJail].forEach((input) => { input.value = 0; });
+  tradeError.textContent = '';
+  renderTradeBuilder();
+  if (!tradeDialog.open) tradeDialog.showModal();
+}
+
+function closeTradeBuilder() {
+  tradeTargetId = null;
+  if (tradeDialog.open) tradeDialog.close();
+}
+
+function renderTradeBuilder() {
+  if (tradeTargetId === null || !latestState) return;
+  const me = playerById(myPlayerId);
+  const them = playerById(tradeTargetId);
+  if (!them) {
+    closeTradeBuilder();
+    return;
+  }
+  tradeTitle.textContent = 'বাণিজ্য: ' + them.name;
+  renderTradeChips(tradeGiveChips, tradeGiveBlocked, myPlayerId, tradeGiveSet);
+  renderTradeChips(tradeGetChips, tradeGetBlocked, tradeTargetId, tradeGetSet);
+
+  // Limits for cash and jail-free cards
+  tradeGiveCash.max = Math.max(0, me.money);
+  tradeGetCash.max = Math.max(0, them.money);
+  tradeGiveJail.max = me.jailFreeCount;
+  tradeGetJail.max = them.jailFreeCount;
+  tradeGiveJailRow.hidden = me.jailFreeCount === 0;
+  tradeGetJailRow.hidden = them.jailFreeCount === 0;
+
+  // Preview with mortgage fees for both sides
+  const offer = currentOffer();
+  const myFee = tradeFee(offer.get.properties);    // I receive "get"
+  const theirFee = tradeFee(offer.give.properties); // they receive "give"
+  let html =
+    '<p><strong>আপনি দিচ্ছেন:</strong> ' + escapeHtml(describeSide(offer.give)) + '</p>' +
+    '<p><strong>আপনি চাইছেন:</strong> ' + escapeHtml(describeSide(offer.get)) + '</p>';
+  if (myFee > 0) html += '<p class="trade-fee-line">আপনাকে বন্ধকী ফি দিতে হবে: ' + money(myFee) + '</p>';
+  if (theirFee > 0) html += '<p class="trade-fee-line">' + escapeHtml(them.name) + '-কে বন্ধকী ফি দিতে হবে: ' + money(theirFee) + '</p>';
+  tradeSummary.innerHTML = html;
+
+  const empty = offer.give.properties.length + offer.give.cash + offer.give.jailFree +
+    offer.get.properties.length + offer.get.cash + offer.get.jailFree === 0;
+  const problem = tradeStartProblem(latestState);
+  tradeSend.disabled = empty || Boolean(problem) || waitingForServer;
+  tradeSend.title = problem || (empty ? 'কিছু বাছাই করুন' : '');
+}
+
+[tradeGiveCash, tradeGetCash, tradeGiveJail, tradeGetJail].forEach((input) => {
+  input.addEventListener('input', renderTradeBuilder);
+});
+tradeCancel.addEventListener('click', closeTradeBuilder);
+tradeDialog.addEventListener('close', () => { tradeTargetId = null; });
+tradeSend.addEventListener('click', async () => {
+  const offer = currentOffer();
+  tradeError.textContent = '';
+  waitingForServer = true;
+  tradeSend.disabled = true;
+  const response = await request(socket, 'trade:propose', { ...session, toId: tradeTargetId, ...offer });
+  waitingForServer = false;
+  if (response.ok) closeTradeBuilder();
+  else {
+    tradeError.textContent = response.error;
+    renderTradeBuilder();
+  }
+});
+
+// Incoming offer panel + my outgoing offer status
+function renderTrades(state) {
+  renderTradeBuilder();
+
+  // Incoming
+  const incoming = myIncomingTrade(state);
+  incomingTrade.hidden = !incoming;
+  if (incoming) {
+    const from = playerById(incoming.fromId);
+    incomingTitle.textContent = from.name + ' আপনাকে বাণিজ্যের প্রস্তাব দিয়েছেন';
+    incomingGet.textContent = describeSide(incoming.give); // what they give = what I get
+    incomingGive.textContent = describeSide(incoming.get);
+    const fees = [];
+    if (incoming.feeTo > 0) fees.push('আপনাকে বন্ধকী ফি দিতে হবে: ' + money(incoming.feeTo));
+    if (incoming.feeFrom > 0) fees.push(from.name + '-কে বন্ধকী ফি দিতে হবে: ' + money(incoming.feeFrom));
+    incomingFees.textContent = fees.join(' · ');
+    incomingAccept.disabled = state.game.phase === 'auction' || waitingForServer;
+    incomingAccept.title = state.game.phase === 'auction' ? 'নিলাম শেষ হলে গ্রহণ করা যাবে' : '';
+    incomingReject.disabled = waitingForServer;
+    incomingTrade.dataset.tradeId = incoming.id;
+  } else {
+    incomingError.textContent = '';
+  }
+
+  // Outgoing
+  const outgoing = myOutgoingTrade(state);
+  outgoingTrade.hidden = !outgoing;
+  if (outgoing) {
+    const to = playerById(outgoing.toId);
+    outgoingTrade.innerHTML =
+      '<span class="outgoing-text">' + escapeHtml(to.name) + '-এর উত্তরের অপেক্ষায় · <span class="outgoing-time"></span></span>' +
+      '<button type="button" class="outgoing-cancel">বাতিল করুন</button>';
+    outgoingTrade.querySelector('.outgoing-cancel').addEventListener('click', () =>
+      sendRequest('trade:cancel', { tradeId: outgoing.id }, actionError));
+    outgoingTrade.dataset.deadline = outgoing.deadline;
+  }
+  updateTradeCountdowns();
+}
+
+function updateTradeCountdowns() {
+  if (!latestState) return;
+  const incoming = myIncomingTrade(latestState);
+  if (incoming && !incomingTrade.hidden) {
+    showCountdown(incomingTimerFill, incomingTimerText, incomingTimer, incoming.deadline,
+      setup.tradeResponseSeconds, DECISION_WARNING_SECONDS);
+  }
+  const outgoing = myOutgoingTrade(latestState);
+  const timeEl = outgoingTrade.querySelector('.outgoing-time');
+  if (outgoing && timeEl) {
+    const left = Math.max(0, Math.ceil((outgoing.deadline - (Date.now() + clockOffsetMs)) / 1000));
+    timeEl.textContent = left + ' সেকেন্ড';
+  }
+}
+
+incomingAccept.addEventListener('click', () =>
+  sendRequest('trade:accept', { tradeId: Number(incomingTrade.dataset.tradeId) }, incomingError));
+incomingReject.addEventListener('click', () =>
+  sendRequest('trade:reject', { tradeId: Number(incomingTrade.dataset.tradeId) }, incomingError));
+
 // ---------- Card display (ভাগ্য / সমাজকল্যাণ) ----------
 // The server shows a drawn card for CARD_SHOW_MS, then applies it and
 // clears it. We hide it when it is cleared or its time is up.
@@ -636,6 +912,9 @@ function updateCountdown() {
       setup.rollTimeoutSeconds, ROLL_WARNING_SECONDS);
   rollTimer.hidden = !rolling;
 
+  // Trade offers (incoming panel + my outgoing offer)
+  updateTradeCountdowns();
+
   // Auto-close the card when its time is up
   if (game.card && !cardModal.hidden && cardTimeIsUp(game.card)) cardModal.hidden = true;
 
@@ -689,6 +968,7 @@ function renderAll() {
   renderPlayers(state);
   renderBankStock(state);
   renderManage(state);
+  renderTrades(state);
   renderTurnInfo(state);
   renderControls(state);
   renderDecision(state);
@@ -798,6 +1078,13 @@ gameLayout.addEventListener('click', (event) => {
     const index = Number(card.dataset.index);
     if (card.closest('#myDeeds')) openManage(index);
     else showDetail(index);
+    return;
+  }
+
+  // "বাণিজ্য" button: open the trade builder for that player.
+  const tradeButton = event.target.closest('.trade-btn');
+  if (tradeButton) {
+    openTradeBuilder(tradeButton.dataset.playerId);
     return;
   }
 

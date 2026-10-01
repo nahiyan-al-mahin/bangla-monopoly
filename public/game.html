@@ -74,6 +74,8 @@
         <span class="panel-room">রুম: <strong id="gameRoomCode"></strong></span>
       </div>
       <p id="bankStock" class="bank-stock"></p>
+      <!-- My pending trade offer (waiting for the other player) -->
+      <div id="outgoingTrade" class="outgoing-trade" hidden></div>
       <p id="connectionBanner" class="connection-banner" hidden>সংযোগ বিচ্ছিন্ন, আবার চেষ্টা হচ্ছে…</p>
       <ul id="gamePlayers" class="game-players"></ul>
 
@@ -114,6 +116,56 @@
       <p id="cardEffect" class="card-effect"></p>
     </div>
   </div>
+
+  <!-- Trade builder: what I give / what I want (js/game.js) -->
+  <dialog id="tradeDialog" class="detail-dialog trade-dialog">
+    <div class="trade-head">
+      <h2 id="tradeTitle"></h2>
+    </div>
+    <div class="trade-columns">
+      <section class="trade-col">
+        <h3>আপনি দিচ্ছেন</h3>
+        <div id="tradeGiveChips" class="trade-chips"></div>
+        <p id="tradeGiveBlocked" class="trade-blocked"></p>
+        <label class="trade-field">টাকা <input id="tradeGiveCash" type="number" min="0" step="10" value="0" inputmode="numeric"></label>
+        <label id="tradeGiveJailRow" class="trade-field">জেল-মুক্তি কার্ড <input id="tradeGiveJail" type="number" min="0" value="0" inputmode="numeric"></label>
+      </section>
+      <section class="trade-col">
+        <h3>আপনি চাইছেন</h3>
+        <div id="tradeGetChips" class="trade-chips"></div>
+        <p id="tradeGetBlocked" class="trade-blocked"></p>
+        <label class="trade-field">টাকা <input id="tradeGetCash" type="number" min="0" step="10" value="0" inputmode="numeric"></label>
+        <label id="tradeGetJailRow" class="trade-field">জেল-মুক্তি কার্ড <input id="tradeGetJail" type="number" min="0" value="0" inputmode="numeric"></label>
+      </section>
+    </div>
+    <div id="tradeSummary" class="trade-summary"></div>
+    <p id="tradeError" class="action-error trade-error" role="alert"></p>
+    <div class="manage-footer">
+      <button id="tradeCancel" type="button" class="detail-close secondary-close">বন্ধ করুন</button>
+      <button id="tradeSend" type="button" class="detail-close">প্রস্তাব পাঠান</button>
+    </div>
+  </dialog>
+
+  <!-- An offer someone sent me: accept / reject with a countdown -->
+  <section id="incomingTrade" class="decision-panel incoming-trade" hidden aria-live="polite">
+    <div class="decision-body">
+      <h2 id="incomingTitle" class="decision-title"></h2>
+      <div class="trade-columns trade-columns-compact">
+        <div class="trade-col"><h3>আপনি পাবেন</h3><p id="incomingGet" class="trade-list"></p></div>
+        <div class="trade-col"><h3>আপনি দেবেন</h3><p id="incomingGive" class="trade-list"></p></div>
+      </div>
+      <p id="incomingFees" class="trade-fees"></p>
+      <div class="decision-timer">
+        <div class="roll-timer-bar"><div id="incomingTimerFill" class="roll-timer-fill"></div></div>
+        <span id="incomingTimerText" class="decision-timer-text"></span>
+      </div>
+      <div class="decision-buttons">
+        <button id="incomingAccept" type="button" class="decision-btn primary">গ্রহণ করুন</button>
+        <button id="incomingReject" type="button" class="decision-btn secondary">প্রত্যাখ্যান করুন</button>
+      </div>
+      <p id="incomingError" class="action-error" role="alert"></p>
+    </div>
+  </section>
 
   <!-- Manage one of my properties: build, sell, mortgage (js/game.js) -->
   <dialog id="manageDialog" class="detail-dialog manage-dialog">
