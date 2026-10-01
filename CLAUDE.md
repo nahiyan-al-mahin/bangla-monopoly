@@ -70,11 +70,11 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 ### Current status (2026-10-01)
 
-- Done and confirmed: Steps 1-6 (setup, board, rooms/lobby, turns + server roll timer, buying/rent/taxes with house rule C owner auctions, cards + jail). Also done: modern minimal UI, three-column layout, title-deed cards.
+- Done and confirmed: Steps 1-7 (setup, board, rooms/lobby, turns + server roll timer, buying/rent/taxes with house rule C owner auctions, cards + jail, houses/hotels/mortgage). Also done: modern minimal UI, three-column layout, title-deed cards, DEBUG_DICE next-card picker.
 
-- In progress / untested in a real game: Step 7 (houses/hotels, selling, mortgage, manage view, bank stock) and the DEBUG_DICE "next card" picker. Engine tests pass and the UI was checked with screenshots, but nobody has played it via `npm run dev` yet.
+- In progress: Step 8 (trading).
 
-- Next: run the Step 7 test plan in a real game (2 players, DEBUG_DICE=1), fix anything found, then mark Step 7 done and start Step 8 (trading).
+- Next: test Step 8 in a real game, then Step 9 (bankruptcy and win condition).
 
 
 - [x] 1. Project setup, Express + Socket.IO server, deploy-ready
@@ -89,7 +89,7 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 - [x] 6. Cards and jail logic
 
-- [ ] 7. Houses/hotels, mortgage
+- [x] 7. Houses/hotels, mortgage
 
 - [ ] 8. Trading
 

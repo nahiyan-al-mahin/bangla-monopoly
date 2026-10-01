@@ -772,12 +772,14 @@ async function sendRequest(eventName, extraData, errorEl) {
   waitingForServer = true;
   renderControls(latestState);
   renderDecision(latestState);
+  renderManage(latestState); // disables the manage buttons too (no double clicks)
 
   const response = await request(socket, eventName, { ...session, ...extraData });
 
   waitingForServer = false;
   renderControls(latestState);
   renderDecision(latestState);
+  renderManage(latestState);
   if (!response.ok) errorEl.textContent = response.error;
   // On success the server broadcasts room:state, which redraws everything.
 }
