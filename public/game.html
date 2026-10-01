@@ -25,16 +25,19 @@
       <div id="board" class="board">
         <!-- Center area (grid rows/columns 2-10) -->
         <div class="board-center">
-          <h1 class="board-title">বাংলা মনোপলি</h1>
-          <div id="turnInfo" class="turn-info"></div>
-          <div class="dice-row">
-            <div id="die1" class="die"></div>
-            <div id="die2" class="die"></div>
-          </div>
-          <!-- Roll countdown (deadline comes from the server) -->
-          <div id="rollTimer" class="roll-timer" hidden>
-            <div class="roll-timer-bar"><div id="rollTimerFill" class="roll-timer-fill"></div></div>
-            <span id="rollTimerText" class="roll-timer-text"></span>
+          <!-- Frosted glass card: title, whose turn, dice, timer -->
+          <div class="center-card">
+            <h1 class="board-title">বাংলা মনোপলি</h1>
+            <div id="turnInfo" class="turn-info"></div>
+            <div class="dice-row">
+              <div id="die1" class="die"></div>
+              <div id="die2" class="die"></div>
+            </div>
+            <!-- Roll countdown (deadline comes from the server) -->
+            <div id="rollTimer" class="roll-timer" hidden>
+              <div class="roll-timer-bar"><div id="rollTimerFill" class="roll-timer-fill"></div></div>
+              <span id="rollTimerText" class="roll-timer-text"></span>
+            </div>
           </div>
         </div>
       </div>

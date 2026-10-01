@@ -1271,7 +1271,6 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   animation: card-flip 0.55s ease-out;
-  backface-visibility: hidden;
 }
 
 /* The drawn card flips over (back -> front) */
@@ -2376,4 +2375,389 @@ body {
   .digits-switch {
     min-height: 44px;
   }
+}
+
+/* =========================================================
+   3D GLASS THEME (game page)
+   A flat 2D layout that looks 3D through light and shadow, plus
+   frosted glass panels. Visual only: overrides the minimal style above.
+   Colors, shadows, blur and radii: design tokens in style.css.
+   ========================================================= */
+
+/* ---------- Board: a raised slab with a silver beveled edge ---------- */
+/* The border is the bevel (gradient), the padding area shows the grid
+   lines, and a large soft shadow lifts the board off the table. */
+.board {
+  border: var(--board-edge-width) solid transparent;
+  background:
+    linear-gradient(var(--square-grid-line), var(--square-grid-line)) padding-box,
+    var(--board-edge) border-box;
+  border-radius: calc(var(--radius-glass) + 2px);
+  box-shadow: var(--board-shadow), var(--board-edge-highlight);
+}
+
+/* ---------- Squares: soft mint, light from above ---------- */
+.square {
+  background: linear-gradient(180deg, var(--square-top) 0%, var(--square-bottom) 100%);
+  box-shadow: var(--square-highlight), var(--square-inner-shadow);
+}
+
+/* Corners: the same mint, a little lighter (replaces the corner tints) */
+.board .square.corner {
+  background: linear-gradient(180deg, var(--square-corner-top) 0%, var(--square-corner-bottom) 100%);
+}
+
+/* Color strips: flat color + a light gloss on top */
+.strip {
+  background-image: var(--strip-gloss);
+}
+
+.side-left .strip,
+.side-right .strip {
+  background-image: var(--strip-gloss-side);
+}
+
+/* ---------- Board center: recessed deep teal ---------- */
+.board-center {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, var(--center-glow) 0%, transparent 100%),
+    linear-gradient(180deg, var(--center-bg-start) 0%, var(--center-bg-end) 100%);
+  box-shadow: var(--center-inset);
+  gap: 1.6cqw;
+}
+
+/* Frosted glass card: title, current player, dice, timer */
+.center-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.2cqw;
+  width: 62%;
+  padding: 2.4cqw 3cqw 2.2cqw;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+.board-title {
+  font-size: calc(var(--board-fs-title) * 1.15);
+  font-weight: 700;
+  color: var(--center-text);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  letter-spacing: 0;
+}
+
+.turn-label {
+  color: var(--center-text-muted);
+}
+
+.turn-name {
+  box-shadow: 0 0.5cqw 1.2cqw rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* ---------- Ivory dice ---------- */
+.die {
+  background: var(--dice-face);
+  border: none;
+  border-radius: 1.6cqw;
+  box-shadow: var(--dice-shadow);
+}
+
+.pip.on {
+  background: var(--dice-pip);
+  box-shadow: inset 0 0.15cqw 0.2cqw rgba(0, 0, 0, 0.6), 0 0.08cqw 0 rgba(255, 255, 255, 0.6);
+}
+
+/* ---------- Timer bars: blue -> green, rounded, inset track ---------- */
+.roll-timer-bar,
+.board-center .roll-timer-bar {
+  background: var(--timer-track);
+  box-shadow: var(--timer-track-shadow);
+}
+
+.roll-timer-fill,
+.board-center .roll-timer-fill {
+  background: var(--timer-fill);
+}
+
+.board-center .roll-timer-text {
+  color: var(--center-text-muted);
+}
+
+/* Under 10 seconds: red */
+.roll-timer.warning .roll-timer-fill,
+.board-center .roll-timer.warning .roll-timer-fill,
+.decision-timer.warning .roll-timer-fill {
+  background: var(--timer-warning);
+}
+
+.board-center .roll-timer.warning .roll-timer-text {
+  color: var(--color-danger);
+}
+
+/* ---------- Action card (controls): frosted glass ---------- */
+.controls {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+.turn-hint {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+/* ---------- Raised green buttons, pressed state moves down ---------- */
+.control-btn,
+.decision-btn.primary,
+.manage-btn,
+.detail-close,
+.trade-btn,
+.game-message a {
+  color: var(--color-text-on-accent);
+  background: var(--btn-primary);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: var(--btn-gloss), var(--btn-raise);
+  transition: transform 0.08s, box-shadow 0.08s, filter 0.15s;
+}
+
+.control-btn:hover:not(:disabled),
+.decision-btn.primary:hover:not(:disabled),
+.manage-btn:hover:not(:disabled),
+.detail-close:hover,
+.trade-btn:hover:not(:disabled) {
+  background: var(--btn-primary-hover);
+}
+
+.control-btn:active:not(:disabled),
+.decision-btn:active:not(:disabled),
+.manage-btn:active:not(:disabled),
+.detail-close:active,
+.trade-btn:active:not(:disabled),
+.host-ctl:active:not(:disabled),
+.props-toggle:active,
+.outgoing-cancel:active,
+.resign-btn:active {
+  transform: translateY(2px);
+  box-shadow: var(--btn-gloss), var(--btn-pressed);
+}
+
+.trade-btn {
+  box-shadow: var(--btn-gloss), 0 2px 0 #145f33, 0 4px 8px rgba(0, 0, 0, 0.18);
+}
+
+/* Secondary buttons: light glass */
+.control-btn.secondary,
+.decision-btn.secondary,
+.decision-btn.danger,
+.detail-close.secondary-close,
+.outgoing-cancel,
+.host-ctl,
+.resign-btn,
+.props-toggle {
+  background: var(--btn-secondary);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.control-btn.secondary,
+.decision-btn.secondary,
+.detail-close.secondary-close {
+  color: var(--color-text);
+}
+
+.decision-btn.danger,
+.host-ctl.danger,
+.resign-btn {
+  color: var(--color-danger);
+}
+
+/* Disabled: flat */
+.control-btn:disabled,
+.decision-btn:disabled,
+.manage-btn:disabled,
+.trade-btn:disabled,
+.host-ctl:disabled {
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: none;
+  transform: none;
+}
+
+/* ---------- Side panels: frosted light glass ---------- */
+.panel,
+.mobile-tabs {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+/* Player cards: raised white cards */
+.game-player {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: 14px;
+  box-shadow: var(--card-raised-shadow);
+}
+
+/* Current player: green glowing outline */
+.game-player.current {
+  border-color: var(--color-accent);
+  box-shadow: var(--current-glow), var(--card-raised-shadow);
+}
+
+.game-player.bankrupt {
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: none;
+}
+
+/* Mini property cards: raised, colored header */
+.deed {
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.deed-head {
+  background-image: var(--strip-gloss);
+}
+
+.mini-chip {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+/* ---------- Event log: color by type ---------- */
+.event-log li {
+  border-bottom-color: rgba(0, 0, 0, 0.07);
+}
+
+.event-log li.log-buy  { color: var(--log-buy); }
+.event-log li.log-warn { color: var(--log-warn); }
+.event-log li.log-move { color: var(--log-move); }
+
+/* ---------- Modals and panels: the same glass ---------- */
+.decision-panel,
+.detail-dialog,
+.card-box,
+.winner-card,
+.game-message {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+.detail-dialog::backdrop {
+  background: rgba(6, 40, 42, 0.45);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.winner-screen {
+  background: rgba(6, 40, 42, 0.55);
+}
+
+/* Inner surfaces inside glass: slightly lighter, soft edges */
+.detail-header,
+.trade-col,
+.trade-summary,
+.detail-note,
+.debug-dice,
+.debug-money {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.decision-strip,
+.debt-strip {
+  border-radius: var(--radius-glass) var(--radius-glass) 0 0;
+}
+
+.toast {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-left-width: 4px;
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+/* ---------- Phones: the bottom action bar keeps its shape ---------- */
+@media (max-width: 899px) {
+  .board-area .controls {
+    border-radius: var(--radius-glass) var(--radius-glass) 0 0;
+  }
+
+  .decision-panel {
+    border-radius: var(--radius-glass) var(--radius-glass) 0 0;
+  }
+
+  .center-card {
+    width: 74%;
+    padding: 3cqw 3cqw;
+  }
+}
+
+/* ---------- Performance fallback ----------
+   No backdrop-filter support, or a small screen (where blur is costly):
+   solid semi-transparent white instead of blurred glass. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .center-card,
+  .controls,
+  .panel,
+  .mobile-tabs,
+  .decision-panel,
+  .detail-dialog,
+  .card-box,
+  .winner-card,
+  .game-message,
+  .toast {
+    background: var(--glass-bg-solid);
+  }
+}
+
+@media (max-width: 599px) {
+  .center-card,
+  .controls,
+  .panel,
+  .mobile-tabs,
+  .decision-panel,
+  .detail-dialog,
+  .card-box,
+  .winner-card,
+  .game-message,
+  .toast {
+    background: var(--glass-bg-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .detail-dialog::backdrop {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Debug pickers: compact, so the action card stays inside the board center */
+.debug-dice {
+  gap: var(--space-half);
+  padding: 4px 6px;
+}
+
+.debug-dice select {
+  font-size: var(--fs-xs);
+}
+
+.debug-dice .debug-card {
+  flex: 1 1 100%;
 }

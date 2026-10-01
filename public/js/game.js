@@ -1183,10 +1183,24 @@ setInterval(updateCountdown, 250);
 
 // ---------- Drawing everything ----------
 
+// Color group of a log entry (display only):
+//   'warn' red    - jail, doubles, debts, bankruptcy, fines, timeouts, cancellations
+//   'buy'  orange - purchases, buildings, auctions, completed trades
+//   'move' blue   - dice rolls and movement
+//   ''     dark   - everything else
+function logKind(text) {
+  if (/হাজত|জোড়া|দেনা|দেউলিয়া|জরিমানা|সময় শেষ|বাতিল/.test(text)) return 'warn';
+  if (/কিনলেন|বানালেন|নিলাম|বাণিজ্য সম্পন্ন|বিক্রি/.test(text)) return 'buy';
+  if (/পাশা ফেললেন|পৌঁছালেন|শুরু পার|শুরু-তে/.test(text)) return 'move';
+  return '';
+}
+
 function renderLog(state) {
   eventLog.innerHTML = '';
   state.game.log.forEach((entry) => {
     const li = document.createElement('li');
+    const kind = logKind(entry.text);
+    if (kind) li.className = 'log-' + kind;
     const time = document.createElement('span');
     time.className = 'log-time';
     time.textContent = new Date(entry.time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });

@@ -11,14 +11,16 @@
    ========================================================= */
 :root {
   /* --- Page --- */
-  --color-page: #0d4433;          /* deep green page background */
-  --color-page-2: #0a3528;        /* second tone for a very subtle gradient */
+  --color-page: #0f5355;          /* deep teal page background */
+  --color-page-2: #0a3c3e;        /* darker teal toward the edges */
+  --page-light: rgba(255, 255, 255, 0.10); /* soft light spot behind the board */
+  --page-vignette: rgba(0, 0, 0, 0.35);    /* darker corners */
 
   /* --- Surfaces and text --- */
   --color-surface: #ffffff;       /* cards, panels, squares */
   --color-surface-muted: #f5f7f6; /* board center, subtle backgrounds */
   --color-border: #e1e6e3;        /* 1px card borders */
-  --color-grid-line: #d3d9d6;     /* lines between board squares */
+  --color-grid-line: #a9cbb2;     /* lines between board squares */
   --color-text: #1d2621;
   --color-text-muted: #6b776f;    /* prices, hints, labels */
   --color-text-on-accent: #ffffff;
@@ -32,16 +34,73 @@
   --color-danger: #d63939;
   --color-danger-soft: #fdecec;
 
-  /* --- Board center (gradient deep green -> teal, light spot near the top) --- */
-  --center-bg-start: #14684d;            /* a bit lighter than the page green */
-  --center-bg-end: #1d8a7e;              /* teal */
-  --center-glow: rgba(255, 255, 255, 0.22); /* soft light spot near the top */
-  --center-text: #ffffff;                /* title */
-  --center-text-muted: rgba(255, 255, 255, 0.78); /* "এখন পালা", timer label */
-  --center-track: rgba(255, 255, 255, 0.25);      /* empty part of the timer bar */
-  --center-fill: #ffffff;                /* timer bar fill */
-  --center-warning: #ff8a8a;             /* timer under 10s (readable on green) */
+  /* --- Board center: a recessed deep-teal area (darker than the page) --- */
+  --center-bg-start: #0d4a4c;
+  --center-bg-end: #0a3f41;
+  --center-glow: rgba(255, 255, 255, 0.06);  /* very soft light near the top */
+  --center-inset: inset 0 1.2cqw 2.5cqw rgba(0, 0, 0, 0.45), inset 0 -0.4cqw 1cqw rgba(255, 255, 255, 0.05);
+  --center-text: #16201b;                /* title (dark, on the glass card) */
+  --center-text-muted: #4e5d55;          /* "এখন পালা", timer label */
   --center-radius: 1.4cqw;               /* rounded inner corners of the center */
+
+  /* --- Frosted glass (panels, center cards, modals) --- */
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-bg-strong: rgba(255, 255, 255, 0.88);  /* modals, center cards, readable text */
+  --glass-bg-solid: rgba(255, 255, 255, 0.95);   /* fallback without blur */
+  --glass-border: rgba(255, 255, 255, 0.75);
+  --glass-blur: 16px;
+  --glass-shadow: 0 18px 45px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.12);
+  --radius-glass: 20px;
+
+  /* --- Board slab: silver beveled edge + big soft shadow --- */
+  --board-edge: linear-gradient(145deg, #fbfcfc 0%, #c9d0d4 30%, #eef1f2 52%, #a7b0b6 78%, #e3e7e9 100%);
+  --board-edge-width: 1.1cqw;
+  --board-edge-highlight: inset 0 0 0 1px rgba(255, 255, 255, 0.85);
+  --board-shadow: 0 34px 70px rgba(0, 0, 0, 0.5), 0 10px 22px rgba(0, 0, 0, 0.3);
+
+  /* --- Squares: soft mint with light from above --- */
+  --square-top: #e9f7ec;
+  --square-bottom: #d3ecd9;
+  --square-corner-top: #f2fbf4;
+  --square-corner-bottom: #ddf2e2;
+  --square-grid-line: #a9cbb2;
+  --square-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --square-inner-shadow: inset 0 -0.35cqw 0.7cqw rgba(0, 70, 40, 0.12);
+  --strip-gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0) 60%);
+  --strip-gloss-side: linear-gradient(90deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 60%);
+
+  /* --- Ivory dice --- */
+  --dice-face: radial-gradient(circle at 30% 25%, #fffef8 0%, #f4ecd8 55%, #e0d3b3 100%);
+  --dice-shadow: 0 0.9cqw 1.3cqw rgba(0, 0, 0, 0.4), inset 0 -0.45cqw 0.6cqw rgba(120, 95, 55, 0.25), inset 0 0.3cqw 0.4cqw rgba(255, 255, 255, 0.9);
+  --dice-pip: #262622;
+
+  /* --- Timer bar --- */
+  --timer-fill: linear-gradient(90deg, #1f6fb8 0%, #1c9a73 100%);
+  --timer-warning: linear-gradient(90deg, #e8590c 0%, #d63939 100%);
+  --timer-track: rgba(0, 0, 0, 0.12);
+  --timer-track-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+
+  /* --- Raised buttons --- */
+  --btn-primary: linear-gradient(180deg, #44b673 0%, #23904f 55%, #1a7a41 100%);
+  --btn-primary-hover: linear-gradient(180deg, #4cc17c 0%, #279957 55%, #1c8345 100%);
+  --btn-gloss: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -2px 4px rgba(0, 0, 0, 0.18);
+  --btn-raise: 0 3px 0 #145f33, 0 8px 16px rgba(0, 0, 0, 0.22);
+  --btn-pressed: 0 1px 0 #145f33, 0 3px 6px rgba(0, 0, 0, 0.2);
+  --btn-secondary: rgba(255, 255, 255, 0.78);
+
+  /* --- Tokens: shaded discs --- */
+  --token-shine: radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 45%);
+  --token-shade: radial-gradient(circle at 50% 115%, rgba(0, 0, 0, 0.38) 0%, rgba(0, 0, 0, 0) 60%);
+  --token-shadow: 0 0.18em 0.3em rgba(0, 0, 0, 0.4), inset 0 -0.12em 0.2em rgba(0, 0, 0, 0.25);
+
+  /* --- Raised white cards (player list, property cards) --- */
+  --card-raised-shadow: 0 4px 12px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+  --current-glow: 0 0 0 2px var(--color-accent), 0 0 18px rgba(31, 157, 107, 0.45);
+
+  /* --- Event log colors --- */
+  --log-buy: #c4620a;     /* purchases, buildings, auctions */
+  --log-warn: #c92a2a;    /* jail, doubles, debts, warnings */
+  --log-move: #1f6fb2;    /* dice and movement */
 
   /* --- Card decks (header band of the drawn card) --- */
   --deck-chance: #e8890c;        /* ভাগ্য: warm amber */
@@ -119,7 +178,11 @@ body {
   padding: var(--space-2);
   font-family: var(--font-family);
   color: var(--color-text);
-  background: linear-gradient(180deg, var(--color-page) 0%, var(--color-page-2) 100%);
+  /* Deep teal with a soft light spot and a vignette (no pattern) */
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 40%, var(--page-light) 0%, transparent 70%),
+    radial-gradient(ellipse 120% 100% at 50% 50%, transparent 55%, var(--page-vignette) 100%),
+    linear-gradient(180deg, var(--color-page) 0%, var(--color-page-2) 100%);
   background-attachment: scroll;
 }
 
@@ -505,5 +568,92 @@ body {
 @media (pointer: coarse) {
   .card button.small {
     min-height: 44px;
+  }
+}
+
+/* =========================================================
+   3D GLASS THEME (shared by both pages)
+   Flat layout that looks 3D through light and shadow.
+   All values come from the design tokens at the top.
+   ========================================================= */
+
+/* Tokens: our icons on a shaded disc with a highlight and a drop shadow */
+.token {
+  background: var(--token-shine), var(--token-shade), var(--token-color);
+  box-shadow: var(--token-shadow);
+}
+
+/* Home and lobby card: frosted glass */
+.card {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+.card h1 {
+  font-weight: 700;
+}
+
+/* Raised green buttons with a glossy top; pressing moves them down */
+.card button,
+.resume-link {
+  background: var(--btn-primary);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: var(--btn-gloss), var(--btn-raise);
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+
+.card button:hover:not(:disabled),
+.resume-link:hover {
+  background: var(--btn-primary-hover);
+}
+
+.card button:active:not(:disabled),
+.resume-link:active {
+  transform: translateY(2px);
+  box-shadow: var(--btn-gloss), var(--btn-pressed);
+}
+
+/* Secondary buttons and pickers: light glass */
+.card button.secondary,
+.card button.option {
+  color: var(--color-text);
+  background: var(--btn-secondary);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.card button.secondary {
+  color: var(--color-accent);
+}
+
+.card button.option.selected {
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 2px var(--color-accent), 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.card button:disabled {
+  box-shadow: none;
+}
+
+.card input,
+.room-code-box,
+.player-list {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+/* No blur support, or a small screen: solid semi-transparent white */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .card { background: var(--glass-bg-solid); }
+}
+
+@media (max-width: 599px) {
+  .card {
+    background: var(--glass-bg-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
