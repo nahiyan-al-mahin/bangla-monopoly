@@ -64,6 +64,8 @@ Full project specification: see SPEC.md (source of truth for rules, board, stack
 
 11. In-memory state: any server restart/redeploy ends active games (accepted limitation).
 
+12. Money limits (overrides SPEC.md classic "must pay or go bankrupt" and default #4 where they differ): forced payments (rent, tax, cards, fines, fees) are always paid in full; cash may go negative down to MIN_CASH (-500) with no debt window. Below MIN_CASH a debt opens: DEBT_RESOLVE_SECONDS (40s) to sell/mortgage/trade until cash >= MIN_CASH (closes automatically), then auto-liquidation, then bankruptcy. Negative cash is written off by the bank in a bankruptcy (the creditor keeps the full payment and gets the properties). While cash < 0: no buying, building, unmortgaging, bidding, paying to leave jail or offering cash in trades. WIN_CASH (3000): reaching it ends the game at once; others ranked by net worth (negative cash counts). Last player standing still wins.
+
 
 
 ## Build progress

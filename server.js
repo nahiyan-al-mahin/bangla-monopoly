@@ -70,6 +70,8 @@ app.get('/api/setup', (req, res) => {
     ownerAuctionDecisionSeconds: config.OWNER_AUCTION_DECISION_SECONDS,
     tradeResponseSeconds: config.TRADE_RESPONSE_SECONDS,
     debtResolveSeconds: config.DEBT_RESOLVE_SECONDS,
+    winCash: config.WIN_CASH, // reaching this much cash wins at once
+    minCash: config.MIN_CASH, // below this a debt opens
     mortgageFeeRate: config.mortgageInterestRate, // fee for receiving a mortgaged property
     auctionSeconds: config.AUCTION_SECONDS,
     bidIncrements: config.auction.bidIncrements,
@@ -246,12 +248,6 @@ io.on('connection', (socket) => {
   });
 
   // --- Debts, bankruptcy, resigning (Step 9) ---
-  handle(socket, 'debt:pay', (request) => {
-    const { room, player } = findPlayer(request);
-    engine.payDebt(room, player);
-    broadcastRoom(room);
-  });
-
   handle(socket, 'debt:bankrupt', (request) => {
     const { room, player } = findPlayer(request);
     engine.declareBankruptcy(room, player);

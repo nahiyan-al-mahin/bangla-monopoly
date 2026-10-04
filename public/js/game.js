@@ -51,7 +51,6 @@ const debtTimerFill = document.getElementById('debtTimerFill');
 const debtTimerText = document.getElementById('debtTimerText');
 const debtTimer = debtTimerFill.closest('.decision-timer');
 const debtButtons = document.getElementById('debtButtons');
-const debtPay = document.getElementById('debtPay');
 const debtManage = document.getElementById('debtManage');
 const debtBankrupt = document.getElementById('debtBankrupt');
 const debtHint = document.getElementById('debtHint');
@@ -124,6 +123,10 @@ const decisionError = document.getElementById('decisionError');
 // Countdowns turn red when this many seconds (or fewer) are left.
 const ROLL_WARNING_SECONDS = 10;
 const DECISION_WARNING_SECONDS = 5;
+
+// Shown on buttons that need money while my cash is below ৳0
+// (the server refuses these actions too).
+const NEGATIVE_CASH_REASON = 'ঋণাত্মক টাকায় এটা করা যাবে না';
 
 let socket = null;
 let session = null;      // { code, playerToken } from localStorage
@@ -308,9 +311,9 @@ function renderPlayers(state) {
       badges += '<span class="badge badge-offline">' + iconSvg('offline', 'badge-icon') + 'সংযোগ বিচ্ছিন্ন</span>';
     }
 
-    // A player with an open debt: money shown in red
+    // Negative cash (or an open debt): money shown in red, e.g. "−৳200"
     const inDebt = state.game.debts.some((d) => d.playerId === player.id);
-    const moneyClass = inDebt ? 'game-player-money negative' : 'game-player-money';
+    const moneyClass = inDebt || player.money < 0 ? 'game-player-money negative' : 'game-player-money';
 
     li.innerHTML =
       '<div class="game-player-row">' +
@@ -407,7 +410,7 @@ function renderControls(state) {
   } else if (debt) {
     const debtor = playerById(debt.playerId);
     turnHint.textContent = debtor.id === myPlayerId
-      ? 'দেনা মেটান — বিক্রি, বন্ধক বা বাণিজ্য করে টাকা জোগাড় করুন।'
+      ? 'টাকা সীমার নিচে — বিক্রি, বন্ধক বা বাণিজ্য করে টাকা জোগাড় করুন।'
       : `${debtor.name}-এর দেনা মেটানোর অপেক্ষা…`;
   } else if (game.bankSale) {
     turnHint.textContent = 'দেউলিয়া খেলোয়াড়ের সম্পত্তি ব্যাংক নিলামে তুলছে…';
@@ -417,7 +420,8 @@ function renderControls(state) {
     turnHint.textContent = 'কার্ড পড়া হচ্ছে…';
   } else if (game.phase === 'roll' && current.inJail) {
     turnHint.textContent = isMyTurn
-      ? `আপনি হাজতে (চেষ্টা ${current.jailTurns + 1}/${setup.maxJailTurns})। বের হওয়ার উপায় বেছে নিন।`
+      ? `আপনি হাজতে (চেষ্টা ${current.jailTurns + 1}/${setup.maxJailTurns})। বের হওয়ার উপায় বেছে নিন।` +
+        (me.money < 0 ? ` জরিমানা দেওয়া যাবে না: ${NEGATIVE_CASH_REASON}।` : '')
       : `${current.name} হাজতে — সিদ্ধান্তের অপেক্ষায়…`;
   } else if (game.phase === 'buy') {
     turnHint.textContent = isMyTurn ? 'কিনবেন কি না, সিদ্ধান্ত নিন।' : `${current.name} ভাবছেন কিনবেন কিনা…`;
@@ -437,7 +441,8 @@ function renderControls(state) {
 }
 
 // Jail options for the jailed current player (server checks them again):
-//   "৳50 দিয়ে বের হও" only if they can afford it,
+//   "৳50 দিয়ে বের হও" only if they can afford it (disabled with the
+//     reason while their cash is negative),
 //   "জেল-মুক্তি কার্ড ব্যবহার করো" only if they hold one,
 //   "জোড়া পড়ার চেষ্টা করো" = a normal roll request (also what a timeout does).
 function renderJailButtons(show, me) {
@@ -446,7 +451,11 @@ function renderJailButtons(show, me) {
   if (!show) return;
 
   const busy = animating || waitingForServer;
-  if (me.money >= setup.jailFine) {
+  if (me.money < 0) {
+    const payButton = makeButton(`৳${setup.jailFine} দিয়ে বের হও`, 'control-btn secondary', true, () => {});
+    payButton.title = NEGATIVE_CASH_REASON;
+    jailButtons.appendChild(payButton);
+  } else if (me.money >= setup.jailFine) {
     jailButtons.appendChild(makeButton(`৳${setup.jailFine} দিয়ে বের হও`, 'control-btn secondary', busy,
       () => sendRequest('jail:pay', {}, actionError)));
   }
@@ -616,10 +625,17 @@ mobileTabs.addEventListener('click', (event) => {
 // "বাংলা সংখ্যা" switch
 setupDigitsToggle(document.getElementById('digitsToggle'));
 
-// ---------- Debts (Step 9) ----------
-// The debtor sees what they owe, their cash, the most they could raise,
-// and a countdown. Selling/mortgaging (manage view) and trading stay
-// available. Everyone else sees who the game is waiting for.
+// ---------- Debts (Step 9, money limits) ----------
+// A debt opens when cash goes below the limit (setup.minCash). The debtor
+// sees their cash, the limit, how much is still needed, the most cash they
+// could reach, and a countdown. Selling/mortgaging (manage view) and trading
+// stay available; once cash is back at the limit the server closes the debt
+// by itself. Everyone else sees who the game is waiting for.
+
+// The debt the panel shows: my own first, otherwise the first open one.
+function shownDebt(state) {
+  return state.game.debts.find((d) => d.playerId === myPlayerId) || state.game.debts[0] || null;
+}
 
 function creditorText(debt) {
   if (debt.creditorId === 'bank') return 'ব্যাংক';
@@ -629,8 +645,7 @@ function creditorText(debt) {
 }
 
 function renderDebt(state) {
-  // My own debt first; otherwise the first open debt (watch only)
-  const debt = state.game.debts.find((d) => d.playerId === myPlayerId) || state.game.debts[0];
+  const debt = shownDebt(state);
   if (!debt || state.game.over) {
     debtPanel.hidden = true;
     debtError.textContent = '';
@@ -641,28 +656,25 @@ function renderDebt(state) {
   debtPanel.hidden = false;
   debtPanel.classList.toggle('watching', !mine);
 
-  debtTitle.textContent = mine ? 'আপনার দেনা' : `${debtor.name}-এর দেনা মেটানোর অপেক্ষা…`;
+  debtTitle.textContent = mine ? 'আপনার টাকা সীমার নিচে!' : `${debtor.name}-এর দেনা মেটানোর অপেক্ষা…`;
   debtInfo.innerHTML =
-    '<p>দেনা: <strong>' + money(debt.amount) + '</strong> → ' + escapeHtml(creditorText(debt)) +
-      ' <span class="debt-reason">(' + escapeHtml(debt.reason) + ')</span></p>' +
-    '<p>' + (mine ? 'আপনার' : escapeHtml(debtor.name) + '-এর') + ' টাকা: <strong>' + money(debtor.money) + '</strong>' +
-      ' · সর্বোচ্চ জোগাড় করা যাবে: <strong>' + money(debt.maxRaisable) + '</strong></p>';
+    '<p>' + (mine ? 'আপনার' : escapeHtml(debtor.name) + '-এর') + ' টাকা: <strong class="negative">' + money(debtor.money) + '</strong>' +
+      ' · সর্বনিম্ন সীমা: <strong>' + money(setup.minCash) + '</strong>' +
+      ' <span class="debt-reason">(' + escapeHtml(debt.reason) + ' → ' + escapeHtml(creditorText(debt)) + ')</span></p>' +
+    '<p>জোগাড় করতে হবে: <strong>' + money(debt.needed) + '</strong>' +
+      ' · সব বিক্রি/বন্ধক করলে টাকা হবে: <strong>' + money(debt.maxRaisable) + '</strong></p>';
 
   debtButtons.hidden = !mine;
   if (mine) {
-    debtPay.disabled = debtor.money < debt.amount || waitingForServer;
     debtBankrupt.disabled = waitingForServer;
-    debtHint.textContent = debtor.money >= debt.amount
-      ? 'যথেষ্ট টাকা হয়েছে — পরিশোধ করুন।'
-      : (debt.maxRaisable >= debt.amount
-        ? 'আমার সম্পত্তি থেকে বাড়ি বিক্রি বা বন্ধক রাখুন, অথবা বাণিজ্য করুন। সময় শেষ হলে স্বয়ংক্রিয়ভাবে বিক্রি হবে।'
-        : 'সব বিক্রি করলেও দেনা মেটানো যাবে না। সময় শেষে দেউলিয়া হবেন।');
+    debtHint.textContent = debt.maxRaisable >= setup.minCash
+      ? `আমার সম্পত্তি থেকে বাড়ি বিক্রি বা বন্ধক রাখুন, অথবা বাণিজ্য করুন। টাকা ${money(setup.minCash)} বা তার বেশি হলেই খেলা চলবে। সময় শেষ হলে স্বয়ংক্রিয়ভাবে বিক্রি/বন্ধক হবে।`
+      : 'সব বিক্রি করলেও সীমায় ফেরা যাবে না। সময় শেষে দেউলিয়া হবেন।';
   } else {
     debtHint.textContent = '';
   }
 }
 
-debtPay.addEventListener('click', () => sendRequest('debt:pay', {}, debtError));
 debtManage.addEventListener('click', () => {
   mobileTabs.querySelector('button[data-tab="mine"]').click(); // phones: switch tab
   document.querySelector('.my-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -692,7 +704,9 @@ function renderEndOfGame(state) {
     return;
   }
   const winner = playerById(over.winnerId);
-  winnerName.textContent = 'বিজয়ী: ' + winner.name;
+  winnerName.textContent = over.reason === 'cash'
+    ? `${winner.name} ${money(over.winCash)} অর্জন করে জয়ী!`
+    : 'বিজয়ী: ' + winner.name;
   winnerRanking.innerHTML = over.ranking.map((row) => {
     const p = playerById(row.id);
     const piece = findById(setup.pieces, p.piece);
@@ -868,9 +882,15 @@ function renderTradeBuilder() {
   renderTradeChips(tradeGiveChips, tradeGiveBlocked, myPlayerId, tradeGiveSet);
   renderTradeChips(tradeGetChips, tradeGetBlocked, tradeTargetId, tradeGetSet);
 
-  // Limits for cash and jail-free cards
+  // Limits for cash and jail-free cards. Negative cash: no money offers.
   tradeGiveCash.max = Math.max(0, me.money);
   tradeGetCash.max = Math.max(0, them.money);
+  tradeGiveCash.disabled = me.money < 0;
+  tradeGiveCash.title = me.money < 0 ? NEGATIVE_CASH_REASON : '';
+  tradeGetCash.disabled = them.money < 0;
+  tradeGetCash.title = them.money < 0 ? them.name + '-এর টাকা ঋণাত্মক' : '';
+  if (me.money < 0) tradeGiveCash.value = 0;
+  if (them.money < 0) tradeGetCash.value = 0;
   tradeGiveJail.max = me.jailFreeCount;
   tradeGetJail.max = them.jailFreeCount;
   tradeGiveJailRow.hidden = me.jailFreeCount === 0;
@@ -885,6 +905,8 @@ function renderTradeBuilder() {
     '<p><strong>আপনি চাইছেন:</strong> ' + escapeHtml(describeSide(offer.get)) + '</p>';
   if (myFee > 0) html += '<p class="trade-fee-line">আপনাকে বন্ধকী ফি দিতে হবে: ' + money(myFee) + '</p>';
   if (theirFee > 0) html += '<p class="trade-fee-line">' + escapeHtml(them.name) + '-কে বন্ধকী ফি দিতে হবে: ' + money(theirFee) + '</p>';
+  if (me.money < 0) html += '<p class="trade-fee-line">টাকা দেওয়া: ' + NEGATIVE_CASH_REASON + '</p>';
+  if (them.money < 0) html += '<p class="trade-fee-line">' + escapeHtml(them.name) + '-এর টাকা ঋণাত্মক — টাকা চাওয়া যাবে না</p>';
   tradeSummary.innerHTML = html;
 
   const empty = offer.give.properties.length + offer.give.cash + offer.give.jailFree +
@@ -1046,14 +1068,16 @@ function renderDecision(state) {
   if (decision.type === 'buy') {
     const decider = playerById(decision.playerId);
     const isMe = decider.id === myPlayerId;
-    const canAfford = me.money >= square.price;
+    const negative = me.money < 0;
+    const canAfford = !negative && me.money >= square.price;
 
     decisionTitle.innerHTML = squareIconSvg(square, 'title-icon') + escapeHtml(square.name);
     decisionSubtitle.textContent = isMe ? 'আপনি কি এটি কিনবেন?' : `${decider.name} ভাবছেন কিনবেন কিনা…`;
     decisionInfo.innerHTML =
       '<p class="decision-price">দাম: <strong>' + money(square.price) + '</strong></p>' +
       '<p class="decision-rent">' + escapeHtml(rentSummary(square)) + '</p>' +
-      (isMe && !canAfford ? '<p class="decision-note">যথেষ্ট টাকা নেই।</p>' : '');
+      (isMe && negative ? '<p class="decision-note">' + NEGATIVE_CASH_REASON + '।</p>' : '') +
+      (isMe && !negative && !canAfford ? '<p class="decision-note">যথেষ্ট টাকা নেই।</p>' : '');
     decisionMyCash.hidden = !isMe;
 
     if (isMe) {
@@ -1108,7 +1132,8 @@ function renderDecision(state) {
     (passedNames.length ? '<p class="decision-note">পাস করেছেন: ' + escapeHtml(passedNames.join(', ')) + '</p>' : '') +
     (iAmSeller ? '<p class="decision-note good">আপনার সম্পত্তি নিলামে — অন্যরা দর দিচ্ছেন।</p>' : '') +
     (iPassed ? '<p class="decision-note">আপনি পাস করেছেন।</p>' : '') +
-    (iAmHighest ? '<p class="decision-note good">আপনিই সর্বোচ্চ দরদাতা!</p>' : '');
+    (iAmHighest ? '<p class="decision-note good">আপনিই সর্বোচ্চ দরদাতা!</p>' : '') +
+    (!iAmSeller && me.money < 0 ? '<p class="decision-note">দর দেওয়া যাবে না: ' + NEGATIVE_CASH_REASON + '।</p>' : '');
   decisionMyCash.hidden = iAmSeller;
 
   if (iAmSeller) return; // the seller only watches
@@ -1120,10 +1145,12 @@ function renderDecision(state) {
     : decision.minBid - setup.bidIncrements[0];
   setup.bidIncrements.forEach((increment) => {
     const amount = base + increment;
-    const disabled = iPassed || iAmHighest || amount > me.money || waitingForServer;
+    const disabled = iPassed || iAmHighest || me.money < 0 || amount > me.money || waitingForServer;
     const label = decision.highestBidderId ? `+${money(increment)} (${money(amount)})` : money(amount);
-    decisionButtons.appendChild(makeButton(label, 'decision-btn primary',
-      disabled, () => sendDecision('auction:bid', { amount })));
+    const bidButton = makeButton(label, 'decision-btn primary',
+      disabled, () => sendDecision('auction:bid', { amount }));
+    if (me.money < 0) bidButton.title = NEGATIVE_CASH_REASON;
+    decisionButtons.appendChild(bidButton);
   });
   decisionButtons.appendChild(makeButton('পাস', 'decision-btn secondary',
     iPassed || iAmHighest || waitingForServer, () => sendDecision('auction:pass', {})));
@@ -1160,7 +1187,7 @@ function updateCountdown() {
   updateHostControls();
 
   // Debt countdown
-  const openDebt = game.debts && game.debts[0];
+  const openDebt = shownDebt(latestState);
   if (openDebt && !debtPanel.hidden) {
     showCountdown(debtTimerFill, debtTimerText, debtTimer, openDebt.deadline,
       setup.debtResolveSeconds, DECISION_WARNING_SECONDS * 3);
@@ -1398,7 +1425,7 @@ function notifyMe(state, isFirstLoad) {
     if (seenDebts.has(debt.id)) return;
     seenDebts.add(debt.id);
     if (!isFirstLoad && debt.playerId === myPlayerId) {
-      showToast('দেনা ' + money(debt.amount) + ' — টাকা জোগাড় করুন', 'bad');
+      showToast('টাকা সীমার নিচে — ' + money(debt.needed) + ' জোগাড় করুন', 'bad');
     }
   });
 }

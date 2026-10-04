@@ -41,11 +41,23 @@ const config = {
   // player choose the dice values. Without it, client dice are ignored.
   debugDice: process.env.DEBUG_DICE === '1',
 
+  // --- Money limits ---
+  // Win by money: the moment a player's cash reaches WIN_CASH (or more),
+  // the game ends and that player wins. "Last player standing" still wins too.
+  WIN_CASH: 3000,
+  // Negative cash: forced payments (rent, tax, cards, fines, fees) are always
+  // paid in full, even if the payer's cash goes below 0. Down to MIN_CASH
+  // nothing else happens. Below MIN_CASH a debt opens (see below).
+  // While cash < 0 a player cannot buy, build, bid, pay to leave jail or
+  // offer money in trades.
+  MIN_CASH: -500,
+
   // --- Debts (Step 9) ---
-  // Time a player has to raise money (sell, mortgage, trade) for a payment
-  // they can't cover. When it runs out the server sells/mortgages
-  // automatically; if that is not enough, the player goes bankrupt.
-  DEBT_RESOLVE_SECONDS: 90,
+  // Cash went below MIN_CASH: time the player has to sell / mortgage / trade
+  // until cash >= MIN_CASH again. When it runs out the server sells and
+  // mortgages automatically; if that is not enough, the player goes bankrupt.
+  // This is the only debt / bankruptcy / auto-liquidation countdown.
+  DEBT_RESOLVE_SECONDS: 40,
 
   // --- Trading ---
   // Time the receiver has to accept a trade offer. Timeout = reject.

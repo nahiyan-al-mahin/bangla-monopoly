@@ -824,8 +824,9 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* A player with an open debt: money shown in red */
-.game-player-money.negative {
+/* Negative cash or an open debt: money shown in red */
+.game-player-money.negative,
+.debt-info .negative {
   color: var(--color-danger);
 }
 

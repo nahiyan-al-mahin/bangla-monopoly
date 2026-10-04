@@ -103,7 +103,7 @@
         <div id="debugMoney" class="debug-money" hidden>
           <span>টাকা সেট করুন:</span>
           <select id="debugMoneyPlayer" aria-label="খেলোয়াড়"></select>
-          <input id="debugMoneyAmount" type="number" min="0" step="10" value="0" aria-label="টাকা">
+          <input id="debugMoneyAmount" type="number" min="-100000" step="10" value="0" aria-label="টাকা">
           <button id="debugMoneySet" type="button">সেট</button>
         </div>
 
@@ -153,8 +153,10 @@
     </div>
   </div>
 
-  <!-- Debt: the debtor raises money and pays, or declares bankruptcy.
-       Everyone else sees who is being waited for (js/game.js). -->
+  <!-- Debt: cash is below the limit (MIN_CASH). The debtor sells, mortgages
+       or trades until cash is back at the limit (the debt then closes by
+       itself), or declares bankruptcy. Everyone else sees who is being
+       waited for (js/game.js). -->
   <section id="debtPanel" class="decision-panel debt-panel" hidden aria-live="polite">
     <div class="decision-strip debt-strip"></div>
     <div class="decision-body">
@@ -165,7 +167,6 @@
         <span id="debtTimerText" class="decision-timer-text"></span>
       </div>
       <div id="debtButtons" class="debt-buttons">
-        <button id="debtPay" type="button" class="decision-btn primary">পরিশোধ করুন</button>
         <button id="debtManage" type="button" class="decision-btn secondary">আমার সম্পত্তি</button>
         <button id="debtBankrupt" type="button" class="decision-btn danger">দেউলিয়া ঘোষণা করুন</button>
       </div>

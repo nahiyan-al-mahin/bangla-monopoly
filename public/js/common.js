@@ -80,9 +80,10 @@ async function fetchSetup() {
 
 // ---------- Formatting ----------
 
-// Format money: 1500 -> "৳1500" (English digits by default, SPEC §9)
+// Format money: 1500 -> "৳1500", -200 -> "−৳200"
+// (English digits by default, SPEC §9; the Bangla digits switch converts them)
 function money(amount) {
-  return '৳' + amount;
+  return amount < 0 ? '−৳' + (-amount) : '৳' + amount;
 }
 
 // Escape text before putting it inside HTML (player names come from users!).
